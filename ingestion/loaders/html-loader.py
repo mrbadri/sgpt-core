@@ -10,10 +10,10 @@ print("Starting HTML loader...")
 # Constants ===================================================
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 EXPERIMENT = "exp-g11-bio"
-CHAPTER = "chapter_1"
+CHAPTER = "chapter_2"
 
 HTML_PATH = DATA_DIR / "raw" / EXPERIMENT / "scrape" / CHAPTER / "content.html"
-OUTPUT_JSON = DATA_DIR / "load" / EXPERIMENT / CHAPTER / "doc-loader-main.json"
+OUTPUT_JSON = DATA_DIR / "load" / EXPERIMENT / CHAPTER / "doc-loader-main-2.json"
 
 # Normalizer ===================================================
 print("Loading Normalizer...")
