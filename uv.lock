@@ -1938,7 +1938,7 @@ wheels = [
 [[package]]
 name = "sgpt-core"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "graphiti-core" },
     { name = "hazm" },

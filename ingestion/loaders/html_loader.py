@@ -1,3 +1,16 @@
+"""HTML → JSON loader using unstructured + Hazm.
+
+``partition_html`` runs language metadata by default (``languages=None`` → ``["auto"]``),
+which calls ``langdetect`` on the full document and can be very slow on long Persian
+text or look “stuck”. We default to ``languages=[""]`` to skip that step (see unstructured
+docs). Override with env ``HTML_LOADER_LANGUAGES`` (comma-separated ISO codes, e.g.
+``fas`` or ``auto``).
+
+Run: ``uv run python -m ingestion.loaders.html_loader``
+"""
+
+from __future__ import annotations
+
 import json
 from pathlib import Path
 

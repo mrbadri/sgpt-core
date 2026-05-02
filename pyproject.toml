@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "sgpt-core"
 version = "0.1.0"
@@ -13,3 +17,7 @@ dependencies = [
     "openai>=2.33.0",
     "unstructured[html]>=0.22.26",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ingestion*"]

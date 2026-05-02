@@ -2,24 +2,19 @@
 
 Needs the same variables as ``ingestion.config.graphiti``: ``NEO4J_URI``, ``NEO4J_USER``,
 ``NEO4J_PASSWORD``. For API access set ``GAPGPT_API_KEY`` and/or ``LLM_API_KEY`` and
-``EMBEDDING_API_KEY``; URLs default to GapGPT when omitted. Optional: ``LLM_BASE_URL``,
-``EMBEDDING_BASE_URL``, ``LLM_MODEL``.
+``EMBEDDING_API_KEY``. Embedding defaults come from ``ingestion.lib.embedding`` (``.env``
+keys ``EMBEDDING_*``, ``GEMINI_BASE_URL``, ``LLM_*``).
 
 From the repository root::
 
-    uv run python ingestion/examples/graphiti_add_episode_example.py
+    uv sync   # installs this project editable (imports work without PYTHONPATH hacks)
+    uv run python -m ingestion.examples.graphiti_add_episode_example
 """
 
 from __future__ import annotations
 
 import asyncio
-import sys
 from datetime import UTC, datetime
-from pathlib import Path
-
-_ROOT = Path(__file__).resolve().parents[2]
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 
 from graphiti_core.nodes import EpisodeType
 

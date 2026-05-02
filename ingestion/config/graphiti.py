@@ -11,48 +11,44 @@ from graphiti_core.driver.neo4j_driver import Neo4jDriver
 from graphiti_core.embedder import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.llm_client import OpenAIClient, LLMConfig
 
-from ingestion.lib.embedding import (
-    DEFAULT_EMBEDDING_DIMENSION,
-    DEFAULT_MODEL,
-)
-
 # --- env ---------------------------------------------------------------------------
-
 load_dotenv()
 
-_DEFAULT_NEO4J_DATABASE = "neo4j"
-_DEFAULT_LLM_MODEL = "gpt-4o-mini"
-
-
+# Neo4j configuration
 NEO4J_URI = os.getenv("NEO4J_URI")
 NEO4J_USER = os.getenv("NEO4J_USER")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
-NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", _DEFAULT_NEO4J_DATABASE)
+NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
 
+# LLM configuration
 LLM_BASE_URL = os.getenv("LLM_BASE_URL")
 LLM_API_KEY = os.getenv("LLM_API_KEY")
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 
+# Embedding configuration
 EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL")
 EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", 3072))
 
 # Validate required environment variables
-if not LLM_BASE_URL or not EMBEDDING_API_KEY:
+if not LLM_API_KEY or not EMBEDDING_API_KEY:
     raise ValueError("Set LLM_API_KEY and EMBEDDING_API_KEY for Graphiti embedder, LLM, and reranker.")
 
 # Create LLM client
 llm_config = LLMConfig(
     api_key=LLM_API_KEY,
     base_url=LLM_BASE_URL,
-    model=os.getenv("LLM_MODEL", _DEFAULT_LLM_MODEL),
+    model=LLM_MODEL,
 )
 
+# Create LLM client
 llm_client = OpenAIClient(config=llm_config)
+
+# Create reranker client
 reranker_client = OpenAIRerankerClient(config=llm_config)
 
 # Create embedding client
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", DEFAULT_MODEL)
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", str(DEFAULT_EMBEDDING_DIMENSION)))
-
 embedder = OpenAIEmbedder(
     config=OpenAIEmbedderConfig(
         api_key=EMBEDDING_API_KEY,
