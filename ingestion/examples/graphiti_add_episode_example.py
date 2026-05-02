@@ -1,8 +1,9 @@
 """Add a single Graphiti episode to validate Neo4j, LLM, and embeddings.
 
-Needs the same variables as ``ingestion.config.graphiti`` (for example ``GAPGPT_API_KEY``,
-``NEO4J_URI``, ``NEO4J_USER``, ``NEO4J_PASSWORD``). Optional overrides: ``GEMINI_BASE_URL``,
-``LLM_BASE_URL``, ``LLM_MODEL``.
+Needs the same variables as ``ingestion.config.graphiti``: ``NEO4J_URI``, ``NEO4J_USER``,
+``NEO4J_PASSWORD``. For API access set ``GAPGPT_API_KEY`` and/or ``LLM_API_KEY`` and
+``EMBEDDING_API_KEY``; URLs default to GapGPT when omitted. Optional: ``LLM_BASE_URL``,
+``EMBEDDING_BASE_URL``, ``LLM_MODEL``.
 
 From the repository root::
 
