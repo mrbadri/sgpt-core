@@ -13,55 +13,15 @@ from langchain_core.embeddings import Embeddings
 from openai import OpenAI
 
 # Constants
-AVALAI_BASE_URL = "https://api.avalai.ir/v1"
 GAPGPT_BASE_URL = "https://api.gapgpt.app/v1"
 DEFAULT_MODEL = "text-embedding-3-large"
+DEFAULT_EMBEDDING_DIMENSION = 3072
 
 
 
 """
 Custom AvalAI Embedding for LangChain
 """
-
-
-class CustomAvalAIEmbeddingLangchain(Embeddings):
-    """
-    LangChain-compatible embedding class for AvalAI.
-    """
-
-    def __init__(
-        self,
-        api_key: str,
-        model: str = DEFAULT_MODEL,
-        base_url: str = AVALAI_BASE_URL,
-    ):
-        self.model = model
-        self.client = OpenAI(
-            api_key=api_key,
-            base_url=base_url,
-        )
-
-    def embed_query(self, text: str) -> List[float]:
-        """
-        Embed a single query
-        """
-        response = self.client.embeddings.create(
-            model=self.model,
-            input=text,
-        )
-        return response.data[0].embedding
-
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """
-        Embed multiple documents
-        """
-        response = self.client.embeddings.create(
-            model=self.model,
-            input=texts,
-        )
-        return [item.embedding for item in response.data]
-
-
 class CustomGapGPTEmbeddingLangchain(Embeddings):
     """
     LangChain-compatible embeddings for GapGPT (OpenAI-compatible /v1/embeddings).
