@@ -14,7 +14,6 @@ from graphiti_core.llm_client import OpenAIClient, LLMConfig
 from ingestion.lib.embedding import (
     DEFAULT_EMBEDDING_DIMENSION,
     DEFAULT_MODEL,
-    GAPGPT_BASE_URL,
 )
 
 # --- env ---------------------------------------------------------------------------

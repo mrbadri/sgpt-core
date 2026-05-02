@@ -11,37 +11,35 @@ from typing import List
 
 from langchain_core.embeddings import Embeddings
 from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Constants
-GAPGPT_BASE_URL = "https://api.gapgpt.app/v1"
-DEFAULT_MODEL = "text-embedding-3-large"
-DEFAULT_EMBEDDING_DIMENSION = 3072
+EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL")
+EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
+EMBEDDING_DIM = os.getenv("EMBEDDING_DIM", 3072)
 
-
-
-"""
-Custom AvalAI Embedding for LangChain
-"""
-class CustomGapGPTEmbeddingLangchain(Embeddings):
+class OpenAIEmbeddingLangchain(Embeddings):
     """
-    LangChain-compatible embeddings for GapGPT (OpenAI-compatible /v1/embeddings).
+    LangChain-compatible embeddings for OpenAI (OpenAI-compatible /v1/embeddings).
 
-    API key: pass `api_key` or set env `GAPGPT_API_KEY`.
+    API key: pass `api_key` or set env `EMBEDDING_API_KEY`.
     """
 
     def __init__(
         self,
-        api_key: str | None = None,
-        model: str = DEFAULT_MODEL,
-        base_url: str = GAPGPT_BASE_URL,
+        api_key: str | None = EMBEDDING_API_KEY,
+        model: str | None = EMBEDDING_MODEL,
+        base_url: str | None = EMBEDDING_BASE_URL,
     ):
-        resolved_key = api_key or os.environ.get("GAPGPT_API_KEY")
-        if not resolved_key:
+        if not api_key:
             raise ValueError(
-                "GapGPT API key required: pass api_key=... or set GAPGPT_API_KEY"
+                "API key required: pass api_key=... or set EMBEDDING_API_KEY"
             )
         self.model = model
-        self.client = OpenAI(api_key=resolved_key, base_url=base_url)
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
 
     def embed_query(self, text: str) -> List[float]:
         response = self.client.embeddings.create(

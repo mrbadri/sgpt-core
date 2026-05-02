@@ -10,13 +10,13 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from ingestion.lib.embedding import CustomGapGPTEmbeddingLangchain
+from ingestion.lib.embedding import OpenAIEmbeddingLangchain
 
 # Data under ingestion/ (splitter -> ingestion -> data)
 _INGESTION_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = _INGESTION_ROOT / "data"
 _DATASET = "exp-g11-bio"
-_CHAPTER = "chapter_2"
+_CHAPTER = "chapter_3"
 INPUT_JSON = DATA_DIR / "load" / _DATASET / _CHAPTER / "doc-loader-main-2.json"
 OUTPUT_JSON = DATA_DIR / "prepare" / _DATASET / _CHAPTER / "split-docs-main-2.json"
 
@@ -29,9 +29,7 @@ docs = [Document(page_content=d["page_content"], metadata=d["metadata"]) for d i
 print(f"Loaded {len(docs)} document(s).")
 
 # Embedding model
-embeddings = CustomGapGPTEmbeddingLangchain(
-    api_key=os.environ.get("GAPGPT_API_KEY"),
-)
+embeddings = OpenAIEmbeddingLangchain()
 
 # Semantic Splitter
 print("Splitting docs semantically...")
