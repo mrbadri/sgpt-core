@@ -2,7 +2,7 @@
 
 Needs the same variables as ``ingestion.config.graphiti``: ``NEO4J_URI``, ``NEO4J_USER``,
 ``NEO4J_PASSWORD``. For API access set ``GAPGPT_API_KEY`` and/or ``LLM_API_KEY`` and
-``EMBEDDING_API_KEY``. Embedding defaults come from ``ingestion.lib.embedding`` (``.env``
+``EMBEDDING_API_KEY``. Embedding defaults come from ``ingestion.config.embedding`` (``.env``
 keys ``EMBEDDING_*``, ``GEMINI_BASE_URL``, ``LLM_*``).
 
 From the repository root::

@@ -4,7 +4,7 @@ from pathlib import Path
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_core.documents import Document
 
-from ingestion.lib.embedding import OpenAIEmbeddingLangchain
+from ingestion.config.embedding import OpenAIEmbeddingLangchain
 
 # Data under ingestion/ (splitter -> ingestion -> data)
 _INGESTION_ROOT = Path(__file__).resolve().parent.parent
