@@ -1,0 +1,73 @@
+# Commit messages (Conventional Commits + emoji types)
+
+Canonical rule file: `.cursor/rules/commit-conventions.mdc` — keep both in sync when changing format.
+
+When suggesting, writing, or performing commits for this repo, follow these rules.
+
+## Cursor Agent vs Source Control “sparkle”
+
+- **Agent (chat / tasks):** Prefer the project rule in `.cursor/rules/commit-conventions.mdc` when available.
+- **Generate Commit Message (SCM sparkle):** Project Rules are not guaranteed for that feature; it also follows recent **`git log` subjects**. Align branch history with this format, or use **Cursor Settings → Rules → User Rules** for the same wording.
+
+## Format
+
+Use Conventional Commits:
+
+```text
+<emoji-type> type(optional-scope): subject
+```
+
+- **subject**: short, clear, preferably **English**, **imperative** (add, fix, update — not added/fixed).
+- **scope**: optional but recommended when it clarifies the area (e.g. `evaluation`, `okr`, `api`).
+
+### Examples
+
+- `✨ feat(evaluation): add access evaluation report`
+- `🩹 fix(okr): resolve progress calculation bug`
+- `📝 docs: add branching and MR guidelines`
+- `♻️ refactor(api): simplify request validation`
+
+## Mandatory types (use exactly this emoji prefix)
+
+Every commit MUST use **one** of these `type` values with **only** its **paired emoji** from this table at the start of the subject line — **the same emoji for the same type, every time**, for every contributor and every tool (no exceptions).
+
+| Emoji | Type       | Use for                                     |
+| ----- | ---------- | ------------------------------------------- |
+| 🏗️    | `build`    | Build system or external dependency changes |
+| 🌐    | `chore`    | Tasks that do not fit other categories      |
+| 👷    | `ci`       | Continuous integration configuration        |
+| 📝    | `docs`     | Documentation only                          |
+| ✨    | `feat`     | New features / behavior                     |
+| 🩹    | `fix`      | Bug fixes                                   |
+| ⚡️    | `perf`     | Performance improvements                    |
+| ♻️    | `refactor` | Refactor without behavior change            |
+| ⏪️    | `revert`   | Revert a previous commit                    |
+| 💄    | `style`    | Formatting, whitespace, style-only          |
+| 🧪    | `test`     | Tests (add/update)                          |
+
+### Strict emoji–type pairing (everyone must follow)
+
+- **All contributors** must use **only** the emojis in the table above, **exactly paired** with the listed `type` for each commit — no other emoji for that intent, **no swapping** emoji between types, and **no** commits without the leading emoji.
+- **Do not substitute** visually similar glyphs (different sparkles/hearts/tools, skin-tone variants intended for another symbol, etc.); copy the emoji from this table **verbatim** each time.
+
+Full line pattern (with optional scope):
+
+`🩹 fix(scope): describe the fix in imperative English`
+
+## Quality
+
+- **Atomic**: one clear intent per commit.
+- Avoid vague subjects: `update`, `fix stuff`, `changes`, `wip`.
+- Split large work into **multiple small commits** when reasonable.
+- Add **scope** when it helps (`feat(auth): ...`).
+
+## Tools and hooks
+
+- **Do not** use `git commit --no-verify` or any `-n` / flags that **skip commit hooks** or validation.
+- Local validation: `.githooks/commit-msg` and `scripts/validate-commit-msg.js` (when `core.hooksPath` is set to `.githooks`).
+- Do not encourage shallow or non-conforming messages to “just push” via the terminal.
+
+## Assistant behavior
+
+- When generating a commit message, output a **single compliant line** (or title + optional body below a blank line if the change needs detail), using the **exact** emoji from the mandatory table for the chosen `type`.
+- If the change mixes unrelated concerns, **recommend splitting** into separate commits with correct types/emojis.
