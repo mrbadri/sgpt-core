@@ -12,7 +12,7 @@ DATA_DIR = _INGESTION_ROOT / "data"
 _DATASET = "exp-g11-bio"
 _CHAPTER = "chapter_3"
 INPUT_JSON = DATA_DIR / "load" / _DATASET / _CHAPTER / "doc-loader-main-2.json"
-OUTPUT_JSON = DATA_DIR / "prepare" / _DATASET / _CHAPTER / "split-docs-main-2.json"
+OUTPUT_JSON = DATA_DIR / "prepare" / _DATASET / _CHAPTER / "split-docs-main-75.json"
 
 
 def main() -> None:
@@ -29,7 +29,7 @@ def main() -> None:
     splitter = SemanticChunker(
         embeddings=embeddings,
         breakpoint_threshold_type="percentile",
-        breakpoint_threshold_amount=50,
+        breakpoint_threshold_amount=75,
     )
 
     split_docs = splitter.split_documents(docs)

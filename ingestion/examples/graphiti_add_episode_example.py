@@ -20,7 +20,7 @@ from graphiti_core.nodes import EpisodeType
 
 from ingestion.config.graphiti import create_graphiti
 
-GROUP_ID = "example-demo"
+GROUP_ID = "exp_g11_bio_chapter_3_4o"
 
 
 async def main() -> None:

@@ -7,9 +7,12 @@ import os
 from dotenv import load_dotenv
 from graphiti_core import Graphiti
 from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
-from graphiti_core.driver.neo4j_driver import Neo4jDriver
 from graphiti_core.embedder import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.llm_client import OpenAIClient, LLMConfig
+
+from graphiti_core.driver.neo4j_driver import Neo4jDriver
+
+from ingestion.config.falkordb import FALKOR_DATABASE, create_falkor_driver
 
 # --- env ---------------------------------------------------------------------------
 load_dotenv()
@@ -63,12 +66,16 @@ def create_graphiti(**overrides) -> Graphiti:
     """Return Graphiti with our Neo4j DB and clients; ``overrides`` map to ``Graphiti(...)`` kwargs."""
     
     # Create Neo4j driver
-    driver = Neo4jDriver(
-        NEO4J_URI,
-        NEO4J_USER,
-        NEO4J_PASSWORD,
-        database=NEO4J_DATABASE,
-    )
+    # driver = Neo4jDriver(
+    #     NEO4J_URI,
+    #     NEO4J_USER,
+    #     NEO4J_PASSWORD,
+    #     database=NEO4J_DATABASE,
+    # )
+
+
+    driver = create_falkor_driver()
+
     return Graphiti(
         graph_driver=driver,
         embedder=embedder,
