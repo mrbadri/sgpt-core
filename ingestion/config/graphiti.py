@@ -13,6 +13,7 @@ from graphiti_core.llm_client import OpenAIClient, LLMConfig
 from graphiti_core.driver.neo4j_driver import Neo4jDriver
 
 from ingestion.config.falkordb import FALKOR_DATABASE, create_falkor_driver
+from ingestion.config.openai_reranker_compatible import OpenAIRerankerNoLogitBias
 
 # --- env ---------------------------------------------------------------------------
 load_dotenv()
@@ -34,6 +35,11 @@ EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", 3072))
 
+# Cross-encoder reranker: OpenAI sends ``logit_bias`` by default; many compatible gateways reject it.
+GRAPHITI_RERANKER_USE_LOGIT_BIAS = (
+    os.getenv("GRAPHITI_RERANKER_USE_LOGIT_BIAS", "").strip().lower() in ("1", "true", "yes")
+)
+
 # Validate required environment variables
 if not LLM_API_KEY or not EMBEDDING_API_KEY:
     raise ValueError("Set LLM_API_KEY and EMBEDDING_API_KEY for Graphiti embedder, LLM, and reranker.")
@@ -48,7 +54,12 @@ llm_config = LLMConfig(
 # Create LLM client
 llm_client = OpenAIClient(config=llm_config)
 
-# Create reranker client
+# Create reranker client (no logit_bias by default — matches OpenAI-compatible providers)
+# reranker_client = (
+#     OpenAIRerankerClient(config=llm_config)
+#     if GRAPHITI_RERANKER_USE_LOGIT_BIAS
+#     else OpenAIRerankerNoLogitBias(config=llm_config)
+# )
 reranker_client = OpenAIRerankerClient(config=llm_config)
 
 # Create embedding client
