@@ -13,9 +13,12 @@ from app.errors.base import (
 
 
 async def application_error_handler(
-    request: Request, exc: ApplicationError
+    request: Request, exc: Exception
 ) -> JSONResponse:
     """Handle application errors."""
+    if not isinstance(exc, ApplicationError):
+        return await general_exception_handler(request, exc)
+
     status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
 
     if isinstance(exc, ValidationError):

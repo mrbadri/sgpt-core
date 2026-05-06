@@ -1,10 +1,9 @@
 """Database session management."""
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker
+from sqlmodel import Session, SQLModel, create_engine
 
 from app.settings import settings
-from app.db.base import Base
 
 
 # Create database engine
@@ -16,15 +15,21 @@ engine = create_engine(
     max_overflow=20,
 )
 
-# Create session factory
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Session factory for compatibility with legacy code that uses SessionLocal
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+    class_=Session,
+)
 
 
 def get_db_session() -> Session:
     """Get a database session."""
-    return SessionLocal()
+    return Session(engine)
 
 
 def init_db() -> None:
     """Initialize database tables."""
-    Base.metadata.create_all(bind=engine)
+    SQLModel.metadata.create_all(bind=engine)

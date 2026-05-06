@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import threading
-from typing import Optional, Callable, Any
+from typing import Optional
 import telebot
 from telebot import apihelper
 from telebot import types
@@ -11,7 +11,6 @@ from telebot import types
 from app.settings import settings
 from app import logging as app_logging
 from app.db.session import get_db_session
-from features.users.service import BotUserService
 
 logger = app_logging.get_logger(__name__)
 
