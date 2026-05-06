@@ -372,14 +372,6 @@ wheels = [
 ]
 
 [[package]]
-name = "en-core-web-sm"
-version = "3.8.0"
-source = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
-wheels = [
-    { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl", hash = "sha256:1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85" },
-]
-
-[[package]]
 name = "falkordb"
 version = "1.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1996,7 +1988,6 @@ name = "sgpt-core"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "en-core-web-sm" },
     { name = "graphiti-core", extra = ["falkordb"] },
     { name = "hazm" },
     { name = "langchain-core" },
@@ -2009,7 +2000,6 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "graphiti-core", extras = ["falkordb"], specifier = ">=0.29.0" },
     { name = "hazm", specifier = ">=0.12.1" },
     { name = "langchain-core", specifier = ">=1.3.2" },

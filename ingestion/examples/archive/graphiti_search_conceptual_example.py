@@ -99,7 +99,7 @@ async def main() -> None:
     graphiti = create_graphiti()
     search_config = search_config_cross_encoder_no_bfs()
     try:
-        results = await graphiti.search(
+        results = await graphiti.search_(
             CONCEPTUAL_QUERY,
             config=search_config,
             # group_ids=[GROUP_ID],
