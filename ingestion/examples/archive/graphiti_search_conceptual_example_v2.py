@@ -1,5 +1,9 @@
 """Run a conceptual search against Graphiti for biology chapter 3 splits.
 
+
+with post search filter
+ingestion/graph/archive/graph_v4.py
+
 The query targets the blood-brain barrier section of
 ``ingestion/data/prepare/exp-g11-bio/chapter_3/split-docs-main-2.json``.
 
@@ -18,6 +22,10 @@ Prerequisite: load that JSON into Neo4j with the same ``group_id``::
 
 Needs the same env as ``ingestion.config.graphiti`` (Neo4j, LLM, embeddings).
 
+Curriculum facets (``cv_section``, etc.) are applied **after** ``search_`` via
+``ingestion.graph.graph.filter_search_results_by_episode_facets`` — Graphiti ignores
+``SearchFilters.property_filters``.
+
 From the repository root::
 
     uv run python -m ingestion.examples.graphiti_search_conceptual_example
@@ -29,11 +37,17 @@ import asyncio
 
 from graphiti_core.search.search_config import EdgeSearchMethod, NodeSearchMethod
 from graphiti_core.search.search_config_recipes import COMBINED_HYBRID_SEARCH_CROSS_ENCODER
+from graphiti_core.search.search_filters import SearchFilters
 
+from ingestion.config.falkordb import FALKOR_DATABASE
 from ingestion.config.graphiti import create_graphiti
+from ingestion.graph.graph import filter_search_results_by_episode_facets
 
-# Underscores: FalkorDB fulltext uses RediSearch; hyphens in group_id break @group_id: filters.
-# GROUP_ID = "exp_g11_bio_chapter_3_4o"
+# Must match the graph you ingested (Falkor graph name = group_id).
+SEARCH_GROUP_ID = FALKOR_DATABASE
+
+
+CV_SECTION_FILTER: int | None = 0
 
 SEARCH_LIMIT = 100
 
@@ -73,7 +87,8 @@ def search_config_cross_encoder_no_bfs(limit: int = SEARCH_LIMIT):
 
 
 CONCEPTUAL_QUERY = (
-    "عوامل حفاظتی از مغز رو نام ببر"
+    "یاخته‌های عصبی"
+    # "عوامل حفاظتی از مغز رو نام ببر"
     # "سد خونی-مغزی چگونه از مغز در برابر مواد مضر و میکروب‌ها محافظت می‌کند "
     # "و چه موادی می‌توانند از این سد عبور کنند؟"
 )
@@ -99,11 +114,25 @@ async def main() -> None:
     graphiti = create_graphiti()
     search_config = search_config_cross_encoder_no_bfs()
     try:
-        results = await graphiti.search(
+        results = await graphiti.search_(
             CONCEPTUAL_QUERY,
             config=search_config,
-            # group_ids=[GROUP_ID],
+            search_filter=SearchFilters(),
+            group_ids=[SEARCH_GROUP_ID],
         )
+
+        if CV_SECTION_FILTER is not None:
+            results = await filter_search_results_by_episode_facets(
+                graphiti.driver,
+                results,
+                group_id=SEARCH_GROUP_ID,
+                section=CV_SECTION_FILTER,
+            )
+
+
+        print("results =========>")
+        print(results)
+        print("results END =========>")
 
         edges = _unique(results.edges, lambda e: e.fact)
         episodes = _unique(results.episodes, lambda ep: ep.content)

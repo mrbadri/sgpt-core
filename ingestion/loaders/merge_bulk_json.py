@@ -14,7 +14,7 @@ Optional: ``--annotate-source`` adds ``bulk_json_file`` to each chunk's metadata
 
 uv run python -m ingestion.loaders.merge_bulk_json \
   --in ingestion/data/load/exp-g11-bio/bulk \
-  --out ingestion/data/load/exp-g11-bio/exp-g11-bio-all-chapters.json
+  --out ingestion/data/load/exp-g11-bio/exp-g11-bio-1404.json
 """
 
 from __future__ import annotations

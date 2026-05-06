@@ -1,9 +1,9 @@
 """Add a single Graphiti episode to validate Neo4j, LLM, and embeddings.
 
-Needs the same variables as ``ingestion.config.graphiti``: ``NEO4J_URI``, ``NEO4J_USER``,
-``NEO4J_PASSWORD``. For API access set ``GAPGPT_API_KEY`` and/or ``LLM_API_KEY`` and
-``EMBEDDING_API_KEY``. Embedding defaults come from ``ingestion.config.embedding`` (``.env``
-keys ``EMBEDDING_*``, ``GEMINI_BASE_URL``, ``LLM_*``).
+Needs the same variables as ``ingestion.config.graphiti``: FalkorDB / Neo4j connection
+vars and Graphiti indexing API keys: ``GRAPHITI_INDEX_LLM_*``,
+``GRAPHITI_INDEX_EMBEDDING_*``, and optionally ``GRAPHITI_INDEX_RERANKER_*`` (see ``.env.example``).
+Other ingestion helpers may use ``EMBEDDING_*`` / ``GEMINI_BASE_URL`` / ``GAPGPT_API_KEY`` separately.
 
 From the repository root::
 

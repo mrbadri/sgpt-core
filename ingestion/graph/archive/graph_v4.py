@@ -1,8 +1,10 @@
 """Load split-doc JSON and push episodes to Graphiti.
 
-Optional fields from each row's ``metadata`` (``major``, ``grade``, ``subject``, …) are written
-on ``:Episodic`` after ``add_episode`` so you can filter in Cypher, e.g.
-``WHERE e.subject = $subject AND e.grade = $grade``.
+Curriculum facets (``cv_*``) are written on ``Episodic`` nodes after each ``add_episode`` so you
+can filter in Cypher (``MATCH (e:Episodic) WHERE e.cv_subject = $subject ...``). Graphiti's
+``episode_fulltext_search`` path does not apply ``SearchFilters.property_filters``, so after
+``search_`` use ``filter_search_results_by_episode_facets`` (or ``curriculum_episode_where`` in
+custom Cypher) to restrict episodes and derived edges/nodes.
 """
 
 from __future__ import annotations
@@ -20,7 +22,9 @@ from typing import Any
 
 from graphiti_core import Graphiti
 from graphiti_core.driver.driver import GraphDriver
-from graphiti_core.nodes import EpisodeType
+from graphiti_core.edges import EntityEdge
+from graphiti_core.nodes import EntityNode, EpisodeType
+from graphiti_core.search.search_config import SearchResults
 
 from ingestion.config.falkordb import FALKOR_DATABASE
 
@@ -29,24 +33,7 @@ logger = logging.getLogger("ingestion.graph.graph")
 
 DEFAULT_SPLIT_JSON = (
     Path(__file__).resolve().parent.parent
-    / "data/normalize/exp-g11-bio/exp-g11-bio-1404.json"
-)
-
-# Shown to Graphiti entity/edge extraction when ``GRAPHITI_CUSTOM_EXTRACTION_INSTRUCTIONS`` is unset.
-DEFAULT_CUSTOM_EXTRACTION_INSTRUCTIONS_EN = (
-    "You are reading instructional text from a Persian (Farsi) high-school biology textbook. "
-    "Extract the underlying concepts and important substantive terms people might see referenced "
-    "again elsewhere (other sections, exams, etc.).\n\n"
-    "PERSIAN SPELLING (STRICT): When you name an entity, reuse the exact phrase as it appears in "
-    "the episode, character-for-character, including the zero-width non-joiner (ZWNJ, Unicode U+200C) "
-    "where the source has it. Do not 'normalize', join, or strip ZWNJ to 'fix' typography.\n\n"
-    "Persian often inserts ZWNJ before suffixes such as plural «های» / «ها» or ezafe «ی» so that "
-    "affixes stay graphically separate from the stem. A common model failure is gluing stem + "
-    "suffix with no ZWNJ.\n"
-    "BAD output: «یاختههای» (wrong—suffix stuck to the stem).\n"
-    "GOOD output: «یاخته‌های» when the passage uses the half-space before «های»—copy that form.\n\n"
-    "If the phrase in the text already lacks ZWNJ, still do not invent merges that blur two words; "
-    "prefer quoting the minimal exact substring from the text as the entity name."
+    / "data/prepare/exp-g11-bio/exp-g11-bio-1404.json"
 )
 
 
@@ -76,9 +63,22 @@ def _ref_time(meta: dict[str, Any]) -> datetime:
     return datetime.now(UTC)
 
 
-# Keys from prepare ``metadata`` allowed on ``:Episodic`` (string or int as below).
-EPISODE_METADATA_KEYS: frozenset[str] = frozenset(
-    ("major", "grade", "subject", "chapter", "section", "publish_year"),
+# --- Episodic curriculum facets (persisted for Cypher filtering) ---
+
+CV_MAJOR = "cv_major"
+CV_GRADE = "cv_grade"
+CV_SUBJECT = "cv_subject"
+CV_CHAPTER = "cv_chapter"
+CV_SECTION = "cv_section"
+CV_PUBLISH_YEAR = "cv_publish_year"
+
+EPISODE_CV_PROPERTY_NAMES: tuple[str, ...] = (
+    CV_MAJOR,
+    CV_GRADE,
+    CV_SUBJECT,
+    CV_CHAPTER,
+    CV_SECTION,
+    CV_PUBLISH_YEAR,
 )
 
 
@@ -108,39 +108,198 @@ def _meta_coerce_int(raw: Any) -> int | None:
     return None
 
 
-def episode_metadata_props(metadata: dict[str, Any]) -> dict[str, Any]:
-    """Map prepare ``metadata`` to properties stored on ``:Episodic``."""
+def episodic_cv_props_from_prepare_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Map ``metadata`` rows from prepared JSON onto ``Episodic`` facet properties."""
 
-    props: dict[str, Any] = {}
+    cv: dict[str, Any] = {}
     mj = _meta_trimmed_str(metadata.get("major"))
     if mj is not None:
-        props["major"] = mj
+        cv[CV_MAJOR] = mj
     sj = _meta_trimmed_str(metadata.get("subject"))
     if sj is not None:
-        props["subject"] = sj
-    for key in ("grade", "chapter", "section", "publish_year"):
-        if key not in metadata:
+        cv[CV_SUBJECT] = sj
+    for meta_key, prop in (
+        ("grade", CV_GRADE),
+        ("chapter", CV_CHAPTER),
+        ("section", CV_SECTION),
+        ("publish_year", CV_PUBLISH_YEAR),
+    ):
+        if meta_key not in metadata:
             continue
-        iv = _meta_coerce_int(metadata.get(key))
-        if iv is not None:
-            props[key] = iv
-    return props
+        iv = _meta_coerce_int(metadata.get(meta_key))
+        if iv is None:
+            continue
+        cv[prop] = iv
+    return cv
 
 
-async def apply_episode_metadata(
+async def apply_curriculum_facets_to_episode(
     driver: GraphDriver,
     episode_uuid: str,
     *,
-    props: dict[str, Any],
+    facets: dict[str, Any],
 ) -> None:
-    """SET allowed metadata keys on an existing ``:Episodic``."""
+    """SET curriculum facet keys on ``:Episodic`` (must already exist).
 
-    allowed = {k: props[k] for k in props if k in EPISODE_METADATA_KEYS}
+    Keys must be listed in ``EPISODE_CV_PROPERTY_NAMES`` — extra keys are ignored.
+    """
+    allowed = {k: facets[k] for k in facets if k in EPISODE_CV_PROPERTY_NAMES}
     if not allowed:
         return
     clauses = ", ".join(f"e.{k} = ${k}" for k in allowed)
-    q = f"MATCH (e:Episodic {{uuid: $uuid}}) SET {clauses} RETURN e.uuid AS uuid"
+    q = (
+        "MATCH (e:Episodic {uuid: $uuid}) SET "
+        + clauses
+        + " RETURN e.uuid AS uuid"
+    )
     await driver.execute_query(q, uuid=episode_uuid, **allowed)
+
+
+def curriculum_episode_where(
+    *,
+    alias: str = "e",
+    major: str | None = None,
+    grade: int | None = None,
+    subject: str | None = None,
+    chapter: int | None = None,
+    section: int | None = None,
+    publish_year: int | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Build a conjunction of comparisons and bind parameters.
+
+    Prefix ``cv_fil_`` on parameters avoids clashing with other query placeholders.
+    """
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if major is not None:
+        clauses.append(f"{alias}.{CV_MAJOR} = $cv_fil_major")
+        params["cv_fil_major"] = major
+    if grade is not None:
+        clauses.append(f"{alias}.{CV_GRADE} = $cv_fil_grade")
+        params["cv_fil_grade"] = grade
+    if subject is not None:
+        clauses.append(f"{alias}.{CV_SUBJECT} = $cv_fil_subject")
+        params["cv_fil_subject"] = subject
+    if chapter is not None:
+        clauses.append(f"{alias}.{CV_CHAPTER} = $cv_fil_chapter")
+        params["cv_fil_chapter"] = chapter
+    if section is not None:
+        clauses.append(f"{alias}.{CV_SECTION} = $cv_fil_section")
+        params["cv_fil_section"] = section
+    if publish_year is not None:
+        clauses.append(f"{alias}.{CV_PUBLISH_YEAR} = $cv_fil_publish_year")
+        params["cv_fil_publish_year"] = publish_year
+    return (" AND ".join(clauses), params)
+
+
+def _score_at(scores: list[float], i: int) -> float:
+    if i < len(scores):
+        return scores[i]
+    return 0.0
+
+
+async def filter_search_results_by_episode_facets(
+    driver: GraphDriver,
+    results: SearchResults,
+    *,
+    group_id: str | None = None,
+    major: str | None = None,
+    grade: int | None = None,
+    subject: str | None = None,
+    chapter: int | None = None,
+    section: int | None = None,
+    publish_year: int | None = None,
+) -> SearchResults:
+    """Drop edges/episodes/nodes not grounded in episodes matching curriculum facets.
+
+    Graphiti does not apply ``SearchFilters.property_filters`` to search. After
+    ``Graphiti.search_``, call this with the same ``cv_*`` constraints you persist
+    on ``:Episodic`` (see ``apply_curriculum_facets_to_episode``).
+
+    Episodes are kept iff their uuid matches the facet query. Edges are kept if at
+    least one uuid in ``edge.episodes`` matches. Nodes are the endpoints of kept
+    edges (order follows the original node list).
+    """
+
+    where_cv, params_cv = curriculum_episode_where(
+        alias="e",
+        major=major,
+        grade=grade,
+        subject=subject,
+        chapter=chapter,
+        section=section,
+        publish_year=publish_year,
+    )
+    if not where_cv:
+        return results
+
+    candidate: set[str] = {ep.uuid for ep in results.episodes}
+    for edge in results.edges:
+        candidate.update(edge.episodes)
+
+    if not candidate:
+        return SearchResults()
+
+    group_clause = ""
+    q_params: dict[str, Any] = {
+        "candidate_uuids": list(candidate),
+        **params_cv,
+    }
+    if group_id is not None:
+        group_clause = " AND e.group_id = $group_id"
+        q_params["group_id"] = group_id
+
+    q = (
+        "MATCH (e:Episodic)\nWHERE e.uuid IN $candidate_uuids"
+        + group_clause
+        + " AND "
+        + where_cv
+        + "\nRETURN e.uuid AS uuid"
+    )
+    records, _, _ = await driver.execute_query(q, **q_params)
+    allowed = {str(row["uuid"]) for row in records if row.get("uuid")}
+
+    if not allowed:
+        return SearchResults()
+
+    ep_keep = [ep for ep in results.episodes if ep.uuid in allowed]
+    ep_scores = [
+        _score_at(results.episode_reranker_scores, i)
+        for i, ep in enumerate(results.episodes)
+        if ep.uuid in allowed
+    ]
+
+    edge_keep: list[EntityEdge] = []
+    edge_scores: list[float] = []
+    for i, edge in enumerate(results.edges):
+        eps = edge.episodes
+        if not eps or allowed.isdisjoint(eps):
+            continue
+        edge_keep.append(edge)
+        edge_scores.append(_score_at(results.edge_reranker_scores, i))
+
+    endpoint: set[str] = set()
+    for edge in edge_keep:
+        endpoint.add(edge.source_node_uuid)
+        endpoint.add(edge.target_node_uuid)
+
+    node_keep: list[EntityNode] = []
+    node_scores: list[float] = []
+    for i, node in enumerate(results.nodes):
+        if node.uuid in endpoint:
+            node_keep.append(node)
+            node_scores.append(_score_at(results.node_reranker_scores, i))
+
+    return SearchResults(
+        edges=edge_keep,
+        edge_reranker_scores=edge_scores,
+        nodes=node_keep,
+        node_reranker_scores=node_scores,
+        episodes=ep_keep,
+        episode_reranker_scores=ep_scores,
+        communities=results.communities,
+        community_reranker_scores=results.community_reranker_scores,
+    )
 
 
 class _C:
@@ -318,22 +477,18 @@ async def ingest_split_json(
     path: str | Path | None = None,
     *,
     # FalkorGraphiti maps group_id → Falkor graph name when != driver.database; keep aligned with FALKOR_DATABASE.
-    group_id: str = FALKOR_DATABASE,
+    group_id: str = "FALKOR_DATABASE",
     setup_db: bool = True,
     limit: int | None = None,
     resume: bool = True,
-    persist_metadata: bool = True,
-    custom_extraction_instructions: str | None = None,
+    persist_curriculum_facets: bool = True,
 ) -> IngestStats:
     """One episode per non-empty ``page_content``; skips rows already stored (same ``name``, same ``group_id``).
 
     Episode names follow ``"{stem}-{row_index:05d}"`` so rerun after interruption continues safely.
 
-    When ``persist_metadata`` is true, ``metadata`` fields (``major``, ``grade``, ``subject``, …)
-    are SET on ``:Episodic`` after each successful ``add_episode``.
-
-    ``custom_extraction_instructions`` is forwarded to Graphiti ``add_episode`` (entity + edge extraction
-    prompts); use it to bias terminology, domain (e.g. biology), or language.
+    After each successful ``add_episode``, optional ``cv_*`` fields are SET on ``:Episodic`` when
+    ``persist_curriculum_facets`` is true (see ``curriculum_episode_where``).
     """
     path = split_json_path(path)
     rows = load_docs(path)
@@ -409,13 +564,13 @@ async def ingest_split_json(
             reference_time=_ref_time(meta),
             source=EpisodeType.text,
             group_id=group_id,
-            custom_extraction_instructions=custom_extraction_instructions,
         )
-        if persist_metadata:
-            await apply_episode_metadata(
+        if persist_curriculum_facets:
+            facets = episodic_cv_props_from_prepare_metadata(meta)
+            await apply_curriculum_facets_to_episode(
                 graphiti.driver,
                 result.episode.uuid,
-                props=episode_metadata_props(meta),
+                facets=facets,
             )
         added += 1
         logger.info("add_episode done episode_name=%s", ep_name)
@@ -433,15 +588,9 @@ async def main() -> None:
 
     from ingestion.config.graphiti import create_graphiti
 
-    extra = (os.environ.get("GRAPHITI_CUSTOM_EXTRACTION_INSTRUCTIONS") or "").strip()
-    if not extra:
-        extra = DEFAULT_CUSTOM_EXTRACTION_INSTRUCTIONS_EN
     g = create_graphiti()
     try:
-        stats = await ingest_split_json(
-            g,
-            # custom_extraction_instructions=extra or None,
-        )
+        stats = await ingest_split_json(g)
         suffix = ""
         if stats.skipped_already_in_graph:
             suffix = f" ({stats.skipped_already_in_graph} already in graph)"

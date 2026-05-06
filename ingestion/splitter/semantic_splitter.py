@@ -16,8 +16,8 @@ from ingestion.config.embedding import OpenAIEmbeddingLangchain
 _INGESTION_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = _INGESTION_ROOT / "data"
 _DATASET = "exp-g11-bio"
-INPUT_JSON = DATA_DIR / "load" / _DATASET / "exp-g11-bio-all-chapters.json"
-OUTPUT_JSON = DATA_DIR / "prepare" / _DATASET / "exp-g11-bio-all-chapters.json"
+INPUT_JSON = DATA_DIR / "load" / _DATASET / "exp-g11-bio-1404.json"
+OUTPUT_JSON = DATA_DIR / "prepare" / _DATASET / "exp-g11-bio-1404.json"
 
 SOURCE_INDEX_META_KEY = "semantic_split_source_index"
 
