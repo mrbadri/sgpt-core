@@ -13,16 +13,21 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from hazm import Normalizer
 from unstructured.chunking.title import chunk_by_title
 from unstructured.partition.html import partition_html
 
 
-def load_html_to_json(html_path: str | Path, output_json_path: str | Path) -> None:
-    """Partition HTML, chunk by title, normalize Persian text, write chunk JSON."""
+def partition_html_to_normalized_chunks(
+    html_path: str | Path,
+    *,
+    languages: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Partition HTML, chunk by title, normalize Persian text; return chunk dicts."""
     html_path = Path(html_path)
-    output_json_path = Path(output_json_path)
+    langs = ["fas"] if languages is None else languages
 
     print("Loading Normalizer...")
     normalizer = Normalizer()
@@ -30,7 +35,7 @@ def load_html_to_json(html_path: str | Path, output_json_path: str | Path) -> No
     print("Partitioning HTML file...")
     elements = partition_html(
         filename=str(html_path),
-        languages=["fas"],
+        languages=langs,
     )
     print(f"Extracted {len(elements)} element(s).")
 
@@ -45,13 +50,20 @@ def load_html_to_json(html_path: str | Path, output_json_path: str | Path) -> No
     print(f"Created {len(chunks)} chunk(s).")
 
     print("Normalizing text...")
-    normalized_chunks = []
+    normalized_chunks: list[dict[str, Any]] = []
     for chunk in chunks:
         normalized_text = normalizer.normalize(chunk.text)
         normalized_chunks.append({
             "page_content": normalized_text,
             "metadata": chunk.metadata.to_dict(),
         })
+    return normalized_chunks
+
+
+def load_html_to_json(html_path: str | Path, output_json_path: str | Path) -> None:
+    """Partition HTML, chunk by title, normalize Persian text, write chunk JSON."""
+    output_json_path = Path(output_json_path)
+    normalized_chunks = partition_html_to_normalized_chunks(html_path)
 
     print("Saving chunks to JSON file...")
     output_json_path.parent.mkdir(parents=True, exist_ok=True)

@@ -35,7 +35,7 @@ from ingestion.config.graphiti import create_graphiti
 # Underscores: FalkorDB fulltext uses RediSearch; hyphens in group_id break @group_id: filters.
 # GROUP_ID = "exp_g11_bio_chapter_3_4o"
 
-SEARCH_LIMIT = 10
+SEARCH_LIMIT = 100
 
 
 def search_config_cross_encoder_no_bfs(limit: int = SEARCH_LIMIT):

@@ -17,47 +17,63 @@ from ingestion.config.falkordb import FALKOR_DATABASE, create_falkor_driver
 # --- env ---------------------------------------------------------------------------
 load_dotenv()
 
-# Neo4j configuration
-NEO4J_URI = os.getenv("NEO4J_URI")
-NEO4J_USER = os.getenv("NEO4J_USER")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
-NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
+# LLM for Graphiti indexing (OpenAI-compatible)
+GRAPHITI_INDEX_LLM_BASE_URL = os.getenv("GRAPHITI_INDEX_LLM_BASE_URL")
+GRAPHITI_INDEX_LLM_API_KEY = os.getenv("GRAPHITI_INDEX_LLM_API_KEY")
+GRAPHITI_INDEX_LLM_MODEL = os.getenv("GRAPHITI_INDEX_LLM_MODEL", "gpt-4o-mini")
 
-# LLM configuration
-LLM_BASE_URL = os.getenv("LLM_BASE_URL")
-LLM_API_KEY = os.getenv("LLM_API_KEY")
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
+# Reranker / cross-encoder (optional; each falls back to the corresponding GRAPHITI_INDEX_LLM_* value)
+GRAPHITI_INDEX_RERANKER_BASE_URL =  os.getenv("GRAPHITI_INDEX_RERANKER_BASE_URL")
+GRAPHITI_INDEX_RERANKER_API_KEY =  os.getenv("GRAPHITI_INDEX_RERANKER_API_KEY")
+GRAPHITI_INDEX_RERANKER_MODEL =   os.getenv("GRAPHITI_INDEX_RERANKER_MODEL")
 
-# Embedding configuration
-EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL")
-EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", 3072))
+# Embeddings for Graphiti indexing
+GRAPHITI_INDEX_EMBEDDING_BASE_URL = os.getenv("GRAPHITI_INDEX_EMBEDDING_BASE_URL")
+GRAPHITI_INDEX_EMBEDDING_API_KEY = os.getenv("GRAPHITI_INDEX_EMBEDDING_API_KEY")
+GRAPHITI_INDEX_EMBEDDING_MODEL = os.getenv(
+    "GRAPHITI_INDEX_EMBEDDING_MODEL", "text-embedding-3-large"
+)
+GRAPHITI_INDEX_EMBEDDING_DIM = int(os.getenv("GRAPHITI_INDEX_EMBEDDING_DIM", 3072))
 
-# Validate required environment variables
-if not LLM_API_KEY or not EMBEDDING_API_KEY:
-    raise ValueError("Set LLM_API_KEY and EMBEDDING_API_KEY for Graphiti embedder, LLM, and reranker.")
-
-# Create LLM client
-llm_config = LLMConfig(
-    api_key=LLM_API_KEY,
-    base_url=LLM_BASE_URL,
-    model=LLM_MODEL,
+# Cross-encoder reranker: OpenAI sends ``logit_bias`` by default; many compatible gateways reject it.
+GRAPHITI_RERANKER_USE_LOGIT_BIAS = (
+    os.getenv("GRAPHITI_RERANKER_USE_LOGIT_BIAS", "").strip().lower() in ("1", "true", "yes")
 )
 
-# Create LLM client
+# Validate required environment variables
+if not GRAPHITI_INDEX_LLM_API_KEY or not GRAPHITI_INDEX_EMBEDDING_API_KEY:
+    raise ValueError(
+        "Set GRAPHITI_INDEX_LLM_API_KEY and GRAPHITI_INDEX_EMBEDDING_API_KEY "
+        "for Graphiti indexing (LLM, embedder, reranker)."
+    )
+
+# LLM client
+llm_config = LLMConfig(
+    api_key=GRAPHITI_INDEX_LLM_API_KEY,
+    base_url=GRAPHITI_INDEX_LLM_BASE_URL,
+    model=GRAPHITI_INDEX_LLM_MODEL,
+)
+
 llm_client = OpenAIClient(config=llm_config)
 
-# Create reranker client
-reranker_client = OpenAIRerankerClient(config=llm_config)
+# Reranker client
+reranker_config = LLMConfig(
+    api_key=GRAPHITI_INDEX_RERANKER_API_KEY,
+    base_url=GRAPHITI_INDEX_RERANKER_BASE_URL,
+    model=GRAPHITI_INDEX_RERANKER_MODEL,
+)
 
-# Create embedding client
+reranker_client = OpenAIRerankerClient(config=reranker_config)
+
+
+
+# Embedder
 embedder = OpenAIEmbedder(
     config=OpenAIEmbedderConfig(
-        api_key=EMBEDDING_API_KEY,
-        base_url=EMBEDDING_BASE_URL,
-        embedding_model=EMBEDDING_MODEL,
-        embedding_dim=EMBEDDING_DIM,
+        api_key=GRAPHITI_INDEX_EMBEDDING_API_KEY,
+        base_url=GRAPHITI_INDEX_EMBEDDING_BASE_URL,
+        embedding_model=GRAPHITI_INDEX_EMBEDDING_MODEL,
+        embedding_dim=GRAPHITI_INDEX_EMBEDDING_DIM,
     )
 )
 
@@ -65,14 +81,6 @@ embedder = OpenAIEmbedder(
 def create_graphiti(**overrides) -> Graphiti:
     """Return Graphiti with our Neo4j DB and clients; ``overrides`` map to ``Graphiti(...)`` kwargs."""
     
-    # Create Neo4j driver
-    # driver = Neo4jDriver(
-    #     NEO4J_URI,
-    #     NEO4J_USER,
-    #     NEO4J_PASSWORD,
-    #     database=NEO4J_DATABASE,
-    # )
-
 
     driver = create_falkor_driver()
 
