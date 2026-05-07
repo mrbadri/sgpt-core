@@ -20,6 +20,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Runtime dependency for psycopg2/libpq
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv in runtime image
 RUN pip install --no-cache-dir uv
 

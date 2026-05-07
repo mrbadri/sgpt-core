@@ -1,9 +1,13 @@
 """FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
+from typing import cast
 
 from fastapi import FastAPI
+from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.sql import text
+from starlette.types import ExceptionHandler
 
 from app import logging as app_logging
 from app.errors.handlers import (
@@ -11,6 +15,7 @@ from app.errors.handlers import (
     general_exception_handler,
 )
 from app.errors.base import ApplicationError
+from app.db.session import engine, init_db
 from app.settings import settings
 
 # Import routers conditionally to avoid errors if routes don't exist yet
@@ -31,6 +36,14 @@ logger = app_logging.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan events."""
+    # Startup: Initialize database and services
+    try:
+        init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}", exc_info=True)
+        raise
+
     # Startup: Initialize services
     if settings.bale_bot_token:
         try:
@@ -75,6 +88,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Error stopping bot service: {e}", exc_info=True)
 
+    try:
+        engine.dispose()
+        logger.info("Database engine disposed successfully")
+    except Exception as e:
+        logger.error(f"Error disposing database engine: {e}", exc_info=True)
+
 
 # Create FastAPI application
 app = FastAPI(
@@ -94,8 +113,10 @@ app.add_middleware(
 )
 
 # Register error handlers
-app.add_exception_handler(ApplicationError, application_error_handler)
-app.add_exception_handler(Exception, general_exception_handler)
+app.add_exception_handler(
+    ApplicationError, cast(ExceptionHandler, application_error_handler)
+)
+app.add_exception_handler(Exception, cast(ExceptionHandler, general_exception_handler))
 
 # Register routers
 app.include_router(bot_router, prefix="/api/bot", tags=["bot"])
@@ -114,7 +135,16 @@ async def root():
 @app.get("/health")
 async def health():
     """Health check endpoint."""
-    return {"status": "healthy"}
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        return {"status": "healthy", "db": "healthy"}
+    except Exception as e:
+        logger.error(f"Health check failed for database: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "unhealthy", "db": "unhealthy"},
+        ) from e
 
 
 

@@ -1,8 +1,5 @@
-"""SQLAlchemy base model."""
+"""Database base — re-exports SQLModel as the project's Base for backward compatibility."""
 
-from sqlalchemy.orm import DeclarativeBase
+from sqlmodel import SQLModel
 
-
-class Base(DeclarativeBase):
-    """Base class for all database models."""
-    pass
+Base = SQLModel
