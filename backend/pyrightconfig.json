@@ -1,0 +1,16 @@
+{
+  "pythonVersion": "3.11",
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": ["src", "tests", "notebooks", "scripts"],
+  "extraPaths": ["src"],
+  "executionEnvironments": [
+    {
+      "root": "notebooks",
+      "extraPaths": ["../src"]
+    },
+    {
+      "root": "."
+    }
+  ]
+}

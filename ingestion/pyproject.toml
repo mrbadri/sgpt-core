@@ -9,6 +9,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "deepagents>=0.5.7",
     "markdown>=3.10.1,<4",
     "python-dotenv>=1.0.0",
     "graphiti-core[falkordb]>=0.29.0",
@@ -21,4 +22,3 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ingestion*"]
