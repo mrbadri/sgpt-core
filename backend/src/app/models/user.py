@@ -15,6 +15,13 @@ class User(BaseDBModelUUID, table=True):
         unique=True,
         sa_type=sa.BigInteger,
     )
+    bale_user_id: int | None = Field(
+        default=None,
+        nullable=True,
+        index=True,
+        unique=True,
+        sa_type=sa.BigInteger,
+    )
 
     def __repr__(self) -> str:
-        return f"User(id={self.id}, mobile={self.mobile})"
+        return f"User(id={self.id}, mobile={self.mobile}, bale_user_id={self.bale_user_id})"

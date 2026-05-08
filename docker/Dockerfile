@@ -11,9 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv
 RUN pip install --no-cache-dir uv
 
-# Copy backend project metadata and install dependencies
-COPY backend/pyproject.toml ./pyproject.toml
-RUN uv sync
+# Copy backend project metadata and install dependencies (lock keeps images reproducible)
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv sync --frozen
 
 # Production stage
 FROM python:3.11-slim
