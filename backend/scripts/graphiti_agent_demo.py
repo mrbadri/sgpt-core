@@ -19,11 +19,14 @@ Run from ``backend/``::
 from __future__ import annotations
 
 import argparse
+from typing import cast
 import asyncio
 import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+from langchain_core.runnables import RunnableConfig
+from openai import APIConnectionError
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -39,21 +42,45 @@ FalkorDB (Redis protocol) unreachable. Start Falkor locally or point env at your
   FALKOR_HOST, FALKOR_PORT (default 127.0.0.1:6379), FALKOR_DATABASE
 See app.config.graphiti.GraphitiSettings / repo .env.example."""
 
+_LLM_CONNECT_HINT = """\
+LLM HTTP connection failed (bad host, DNS, or wrong base URL). Fix:
+  AGENT_CHAT_MODEL, AGENT_CHAT_API_KEY, AGENT_CHAT_BASE_URL
+or fallbacks GRAPHITI_INDEX_LLM_* / GAPGPT_API_KEY / GEMINI_BASE_URL.
+Errno 8 / "nodename nor servname" usually means the base URL host is empty or invalid."""
 
-async def run_once(*, query: str, group_ids: str | None) -> None:
+
+async def run_once(
+    *,
+    query: str,
+    group_ids: str | None,
+    user_id: str | None = None,
+) -> None:
     print("run_once: =================")
     print(f"query: {query}")
     print(f"group_ids: {group_ids}")
     from app.agent.deep_agent import build_graphiti_deep_agent
-    print("build_graphiti_deep_agent: =================")
+    from langgraph.checkpoint.memory import MemorySaver
 
-    agent = build_graphiti_deep_agent()
+    print("build_graphiti_deep_agent: =================")
+    # Per-learner disk memory: export USER_MEMORIES_DIR=/path/to/memories and optional --user-id
+    # (creates/reads USER_MEMORIES_DIR/user_<id>.md via FilesystemBackend).
+    agent = build_graphiti_deep_agent(
+        user_id=user_id,
+        checkpointer=MemorySaver(),
+    )
     print("agent: =================")
     user_text = query
     if group_ids:
         user_text = f"{query}\n\n(Scope to group_ids: {group_ids})"
 
-    result = await agent.ainvoke({"messages": [{"role": "user", "content": user_text}]})
+    cfg = cast(
+        RunnableConfig,
+        {"configurable": {"thread_id": f"user-{user_id}" if user_id else "demo-thread"}},
+    )
+    result = await agent.ainvoke(
+        {"messages": [{"role": "user", "content": user_text}]},
+        config=cfg,
+    )
     print("result: =================")
     print(result)
     last_msg = result["messages"][-1]
@@ -77,11 +104,23 @@ def main() -> None:
         metavar="IDS",
         help='Optional Falkor-style scope (e.g. "g1,g2")',
     )
+    parser.add_argument(
+        "--user-id",
+        default=None,
+        metavar="ID",
+        help="Load long-term memory from USER_MEMORIES_DIR/user_<ID>.md (set USER_MEMORIES_DIR)",
+    )
     args = parser.parse_args()
     try:
         print(f"query: {args.query}")
         print(f"group_ids: {args.group_ids}")
-        asyncio.run(run_once(query=args.query, group_ids=args.group_ids))
+        asyncio.run(
+            run_once(query=args.query, group_ids=args.group_ids, user_id=args.user_id)
+        )
+    except APIConnectionError as e:
+        print(f"{e}", file=sys.stderr)
+        print(_LLM_CONNECT_HINT, file=sys.stderr)
+        raise SystemExit(1) from e
     except RedisConnectionError as e:
         print(f"{e}", file=sys.stderr)
         print(_FALKOR_HINT, file=sys.stderr)

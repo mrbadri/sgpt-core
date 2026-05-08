@@ -68,8 +68,10 @@ async def search_concepts(
 
     try:
         if settings.graphiti_search_preset == "rrf":
+            print("rrf =================")
             cfg = search_config_rrf_no_bfs(limit=effective_limit)
         else:
+            print("cross_encoder =================")
             cfg = search_config_cross_encoder_no_bfs(limit=effective_limit)
         results = await g.search_(query, config=cfg, group_ids=group_ids)
         edges = _unique(results.edges, lambda e: e.fact)[:RESULT_LIMIT_PER_CATEGORY]

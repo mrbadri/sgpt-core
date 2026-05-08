@@ -7,6 +7,8 @@ from collections.abc import Sequence
 from typing import Any, cast
 
 from deepagents import create_deep_agent
+from deepagents.backends.filesystem import FilesystemBackend
+from deepagents.backends.protocol import BACKEND_TYPES
 from deepagents.profiles.harness.harness_profiles import (
     GeneralPurposeSubagentProfile,
     HarnessProfile,
@@ -16,6 +18,7 @@ from langchain.agents import AgentState
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain.chat_models import BaseChatModel, init_chat_model
+from langgraph.types import Checkpointer
 
 from app.agent.graphiti_tool import build_graphiti_batch_search_tool, build_graphiti_search_tool
 
@@ -80,9 +83,39 @@ def build_graphiti_deep_agent(
     system_prompt: str | None = None,
     max_episode_chars: int = 1500,
     max_tool_calls_per_run: int = 1,
+    user_id: str | None = None,
+    user_memories_dir: str | None = None,
+    memory: list[str] | None = None,
+    checkpointer: Checkpointer | None = None,
+    backend: BACKEND_TYPES | None = None,
 ):
-    """Return a compiled LangGraph deep agent with Graphiti search tools."""
+    """Return a compiled LangGraph deep agent with Graphiti search tools.
 
+    **Long-term memory (Markdown)**
+
+    - With the default ``StateBackend`` (no ``backend``), ``memory`` paths refer
+      to keys in LangGraph ``files`` state — preload on ``invoke`` with a
+      ``files`` dict, or the middleware skips missing keys.
+    - For **one file per learner on disk**, pass ``user_id`` plus
+      ``user_memories_dir`` or env ``USER_MEMORIES_DIR``. That sets
+      ``FilesystemBackend(root_dir=..., virtual_mode=True)`` and ``memory=["user_<id>.md"]``
+      (path **relative** to ``root_dir``, sandboxed under that directory). Example on disk:
+      ``{USER_MEMORIES_DIR}/user_alice.md``.
+    - Alternatively pass ``backend`` + ``memory`` yourself (e.g. custom store).
+
+    If you pass ``user_id``, do not pass ``memory`` or ``backend`` — use one style only.
+
+    **Short-term memory (checkpoints)**
+
+    Pass a LangGraph ``checkpointer`` and reuse the same ``thread_id`` in
+    ``config["configurable"]`` for the same chat session / learner.
+
+    Summarization is already inside ``create_deep_agent``; do not add
+    ``create_summarization_middleware`` again in ``middleware``.
+
+    This app’s harness excludes ``edit_file`` / ``write_file``; update learner
+    markdown from your API if the model cannot write memory itself.
+    """
 
     _ensure_graphiti_harness_profiles()
 
@@ -130,11 +163,27 @@ def build_graphiti_deep_agent(
         [limiter],
     )
 
+    resolved_memory = memory
+    resolved_backend = backend
+    if user_id is not None:
+        if memory is not None or backend is not None:
+            raise ValueError("Use either user_id (+ user_memories_dir / USER_MEMORIES_DIR) or memory/backend, not both.")
+        mem_root = (user_memories_dir or _env_first_nonempty("USER_MEMORIES_DIR") or "").strip()
+        if not mem_root:
+            raise ValueError(
+                "user_id requires user_memories_dir=... or USER_MEMORIES_DIR pointing at the memories directory."
+            )
+        resolved_backend = FilesystemBackend(root_dir=mem_root, virtual_mode=True)
+        resolved_memory = [f"user_{user_id}.md"]
+
     return create_deep_agent(
         model=resolved_model,
         tools=tools,
         system_prompt=system_prompt or DEFAULT_SYSTEM_PROMPT,
         middleware=extra_middleware,
+        memory=resolved_memory,
+        checkpointer=checkpointer,
+        backend=resolved_backend,
     )
 
 
