@@ -30,6 +30,21 @@ if config.config_file_name is not None:
 target_metadata = SQLModel.metadata
 
 
+def _render_item(type_: str, obj, autogen_context) -> str | bool:
+    """Emit ``sa.String`` for SQLModel ``AutoString`` so revisions need no sqlmodel import."""
+    if type_ != "type":
+        return False
+    try:
+        from sqlmodel.sql.sqltypes import AutoString
+    except ImportError:
+        return False
+    if isinstance(obj, AutoString):
+        if obj.length is not None:
+            return f"sa.String(length={int(obj.length)})"
+        return "sa.String(length=255)"
+    return False
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
@@ -38,6 +53,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        render_item=_render_item,
     )
 
     with context.begin_transaction():
@@ -54,7 +70,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            render_item=_render_item,
         )
 
         with context.begin_transaction():
