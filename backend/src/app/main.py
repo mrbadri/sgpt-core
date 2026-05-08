@@ -3,7 +3,7 @@
 from contextlib import asynccontextmanager
 from typing import cast
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.sql import text
@@ -21,10 +21,14 @@ from app.settings import settings
 
 # Import routers conditionally to avoid errors if routes don't exist yet
 try:
-    from app.api.bot.router import router as bot_router
+    from app.api.v1.api import router as v1_router
 except ImportError:
-    from fastapi import APIRouter
-    bot_router = APIRouter()
+    v1_router = APIRouter()
+
+try:
+    from app.api.webhooks.bale import router as bale_webhook_router
+except ImportError:
+    bale_webhook_router = APIRouter()
 
 
 
@@ -120,7 +124,10 @@ app.add_exception_handler(
 app.add_exception_handler(Exception, cast(ExceptionHandler, general_exception_handler))
 
 # Register routers
-app.include_router(bot_router, prefix="/api/bot", tags=["bot"])
+app.include_router(v1_router, prefix="/api/v1", tags=["v1"])
+app.include_router(
+    bale_webhook_router, prefix="/api/webhooks/bale", tags=["webhooks"]
+)
 
 
 @app.get("/")
