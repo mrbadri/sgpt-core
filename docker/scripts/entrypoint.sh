@@ -9,7 +9,7 @@ fi
 
 # Run database migrations (use root alembic.ini, PYTHONPATH for app imports)
 echo "Running database migrations..."
-cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini upgrade head || echo "Migrations failed or no migrations to run"
+cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini upgrade head
 
 # Execute the main command
 exec "$@"

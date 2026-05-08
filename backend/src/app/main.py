@@ -16,6 +16,7 @@ from app.errors.handlers import (
 )
 from app.errors.base import ApplicationError
 from app.db.session import engine, init_db
+from app.models import User  # noqa: F401 — must be imported before init_db() so SQLModel registers the table
 from app.settings import settings
 
 # Import routers conditionally to avoid errors if routes don't exist yet

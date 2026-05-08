@@ -1,5 +1,6 @@
 """User model."""
 
+import sqlalchemy as sa
 from sqlmodel import Field
 
 from app.models.base import BaseDBModelUUID
@@ -8,11 +9,11 @@ from app.models.base import BaseDBModelUUID
 class User(BaseDBModelUUID, table=True):
     __tablename__ = "user"  # type: ignore[assignment]
 
-    mobile: str = Field(
-        unique=True,
+    mobile: int = Field(
         nullable=False,
-        max_length=20,
         index=True,
+        unique=True,
+        sa_type=sa.BigInteger,
     )
 
     def __repr__(self) -> str:

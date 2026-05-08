@@ -1,13 +1,14 @@
 """Bale bot service for handling commands and messages."""
 
 import asyncio
-import logging
 import threading
 from typing import Optional
 import telebot
 from telebot import apihelper
 from telebot import types
+from sqlmodel import select
 
+from app.models.user import User
 from app.settings import settings
 from app import logging as app_logging
 from app.db.session import get_db_session
@@ -43,52 +44,26 @@ class BotService:
         # Start command handler
         @self.bot.message_handler(commands=["start"])
         def handle_start(message: types.Message) -> None:
-            """Handle /start command."""
             try:
-                payload = None
-
-                # Parse deep-link payload: /start <payload>
-                if message.text:
-                    parts = message.text.split(maxsplit=1)
-                    if len(parts) == 2:
-                        payload = parts[1]
-
-                # Save user to database (idempotent - won't create duplicate)
-                try:
-                    db = get_db_session()
-                    try:
-                        user_service = BotUserService(db)
-                        db_user, created = user_service.save_user_from_message(message)
-                        if db_user:
-                            logger.debug(
-                                f"User saved | bale_user_id={db_user.bale_user_id} "
-                                f"created={created}"
-                            )
-                    except Exception as user_error:
-                        # Log error but don't fail the /start command
-                        logger.error(
-                            f"Error saving user to database: {user_error}",
-                            exc_info=True
-                        )
-                    finally:
-                        db.close()
-                except Exception as db_error:
-                    # Log database session error but don't fail the /start command
-                    logger.error(
-                        f"Error creating database session: {db_error}",
-                        exc_info=True
-                    )
-
-                greeting = "سلام! 👋\n\nخوش آمدید به ربات بله!"
-                if payload:
-                    greeting += f"\n\npayload: {payload}"
-
-                self.bot.reply_to(message, greeting)
-
                 user_id = message.from_user.id if message.from_user else None
+                greeting = "سلام! برای ثبت‌نام، لطفاً دکمه «ارسال شماره من» را لمس کنید 📲"
+
+                contact_button = types.KeyboardButton(
+                    text="📱 ارسال شماره من",
+                    request_contact=True,
+                )
+                keyboard = types.ReplyKeyboardMarkup(
+                    resize_keyboard=True,
+                    one_time_keyboard=True,
+                )
+                keyboard.add(contact_button)
+
+                self.bot.reply_to(message, greeting, reply_markup=keyboard)
+        
+
                 logger.info(
                     f"/start received | user_id={user_id} "
-                    f"chat_id={message.chat.id} payload={payload}"
+                    f"chat_id={message.chat.id}"
                 )
 
             except Exception as e:
@@ -101,22 +76,62 @@ class BotService:
                     pass
 
 
-        # Echo command handler
-        @self.bot.message_handler(commands=["echo"])
-        def handle_echo(message: types.Message) -> None:
-            """Handle /echo command."""
+        # Contact handler — triggered when the user taps the "Send my number" button
+        @self.bot.message_handler(content_types=["contact"])
+        def handle_contact(message: types.Message) -> None:
             try:
-                text = message.text.replace("/echo", "").strip()
-                if text:
-                    self.bot.reply_to(message, text)
-                    logger.info(
-                        f"Echo command received from user {message.from_user.id}: {text}"
-                    )
-                else:
-                    usage_message = "یه متن بده: /echo سلام"
-                    self.bot.reply_to(message, usage_message)
+                contact = message.contact
+                if contact is None:
+                    self.bot.reply_to(message, "اطلاعات تماسی دریافت نشد. لطفاً دوباره تلاش کنید.")
+                    return
+
+                phone_number = contact.phone_number or ""
+                clean = phone_number.lstrip("+")
+                if clean.startswith("00"):
+                    clean = clean[2:]
+                if clean.startswith("98"):
+                    clean = clean[2:]
+                clean = clean.lstrip("0")
+                mobile = int(clean) if clean.isdigit() else None
+                if mobile is None:
+                    self.bot.reply_to(message, "شماره موبایل نامعتبر است. لطفاً دوباره تلاش کنید.")
+                    return
+
+                user_id = message.from_user.id if message.from_user else None
+
+                try:
+                    db = get_db_session()
+                    try:
+                        existing = db.exec(select(User).where(User.mobile == mobile)).first()
+                        if existing:
+                            reply = f"✅ شماره {mobile} قبلاً ثبت شده است."
+                            logger.info(
+                                f"Contact already registered | user_id={user_id} mobile={mobile}"
+                            )
+                        else:
+                            user = User.model_validate({"mobile": mobile})
+                            db.add(user)
+                            db.commit()
+                            db.refresh(user)
+                            reply = f"✅ شماره {mobile} با موفقیت ثبت شد!"
+                            logger.info(
+                                f"User registered | user_id={user_id} mobile={mobile} db_id={user.id}"
+                            )
+                    except Exception as db_err:
+                        db.rollback()
+                        reply = "متأسفانه در ثبت اطلاعات خطایی رخ داد. لطفاً دوباره تلاش کنید."
+                        logger.error(f"Error saving user: {db_err}", exc_info=True)
+                    finally:
+                        db.close()
+                except Exception as session_err:
+                    reply = "متأسفانه در اتصال به پایگاه داده خطایی رخ داد."
+                    logger.error(f"Error creating DB session: {session_err}", exc_info=True)
+
+                remove_keyboard = types.ReplyKeyboardRemove()
+                self.bot.reply_to(message, reply, reply_markup=remove_keyboard)
+
             except Exception as e:
-                logger.error(f"Error handling echo command: {e}", exc_info=True)
+                logger.error(f"Error handling contact: {e}", exc_info=True)
                 try:
                     self.bot.reply_to(
                         message, "متأسفانه خطایی رخ داد. لطفاً دوباره تلاش کنید."
@@ -124,6 +139,7 @@ class BotService:
                 except Exception:
                     pass
 
+    
         # Unknown command handler
         @self.bot.message_handler(func=lambda m: True)
         def handle_unknown(message: types.Message) -> None:
@@ -132,7 +148,7 @@ class BotService:
                 # Only respond to commands (messages starting with /)
                 if message.text and message.text.startswith("/"):
                     logger.warning(
-                        f"Unknown command received from user {message.from_user.id}: {message.text}"
+                        f"Unknown command received from user {message.from_user}: {message.text}"
                     )
                     # Don't reply to unknown commands to avoid spam
                     # The bot will silently ignore them
