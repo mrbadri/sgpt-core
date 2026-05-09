@@ -1,2 +1,5 @@
 .venv
 .langgraph_api
+.env
+.env.*
+!.env.example

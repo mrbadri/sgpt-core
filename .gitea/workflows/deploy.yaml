@@ -21,13 +21,21 @@ jobs:
           # سوئیچ به آخرین کامیت پاش شده
           git checkout ${{ gitea.sha }}
 
-      # مرحله دوم: بیلد ایمیج با docker/docker-compose.prod.yml (همان مسیر make prod-build)
+      # مرحله دوم: نوشتن فایل .env از سکرت گیتیا
+      - name: Inject Environment File
+        env:
+          ENV_FILE_CONTENT: ${{ secrets.ENV_FILE_CONTENT }}
+        run: |
+          printf '%s' "$ENV_FILE_CONTENT" > .env
+          echo "Environment file written."
+
+      # مرحله سوم: بیلد ایمیج با docker/docker-compose.prod.yml (همان مسیر make prod-build)
       - name: Build Docker Image
         run: |
           echo "Starting Docker Build..."
           docker compose -f docker/docker-compose.prod.yml build
 
-      # مرحله سوم: اجرای اپلیکیشن (نیاز به .env در ریشهٔ مخزن روی runner، مطابق docker-compose.prod.yml)
+      # مرحله چهارم: اجرای اپلیکیشن
       - name: Deploy Application
         run: |
           echo "Updating containers..."
