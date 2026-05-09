@@ -5,8 +5,11 @@
 #   make prod-up     # Start production environment
 #   make help        # Show all available commands
 
-.PHONY: help dev-up dev-down dev-build dev-logs dev-restart prod-up prod-down prod-build prod-logs prod-restart clean ps shell shell-backend shell-db migrate migrate-create migrate-current migrate-history migrate-downgrade test test-unit test-integration test-users
-
+.PHONY: help dev-up dev-down dev-down-v dev-build dev-logs dev-restart \
+prod-up prod-down prod-down-v prod-build prod-logs prod-restart \
+clean ps shell shell-backend shell-db migrate migrate-create \
+migrate-current migrate-history migrate-downgrade test test-unit \
+test-integration test-users
 # Get the directory where this Makefile is located
 ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
@@ -28,6 +31,7 @@ help: ## Show this help message
 	@echo "Development Commands:"
 	@echo "  dev-up          Start development environment"
 	@echo "  dev-down        Stop development environment"
+	@echo "  dev-down-v      Stop development environment and remove volumes"
 	@echo "  dev-build       Build development images"
 	@echo "  dev-logs        Show development logs"
 	@echo "  dev-restart     Restart development services"
@@ -35,6 +39,7 @@ help: ## Show this help message
 	@echo "Production Commands:"
 	@echo "  prod-up         Start production environment"
 	@echo "  prod-down       Stop production environment"
+	@echo "  prod-down-v     Stop production environment and remove volumes"
 	@echo "  prod-build      Build production images"
 	@echo "  prod-logs       Show production logs"
 	@echo "  prod-restart    Restart production services"
@@ -87,6 +92,9 @@ dev-stop: ## Stop development services without removing containers
 dev-start: ## Start stopped development services
 	docker-compose -f $(DEV_COMPOSE) start
 
+dev-down-v: ## Stop development environment and remove volumes
+	docker-compose -f $(DEV_COMPOSE) down -v
+
 # Production commands
 prod-up: ## Start production environment
 	docker-compose -f $(PROD_COMPOSE) up -d
@@ -114,6 +122,9 @@ prod-stop: ## Stop production services without removing containers
 
 prod-start: ## Start stopped production services
 	docker-compose -f $(PROD_COMPOSE) start
+
+prod-down-v: ## Stop production environment and remove volumes
+	docker-compose -f $(PROD_COMPOSE) down -v
 
 # Utility commands
 ps: ## Show running containers

@@ -13,6 +13,7 @@ def register_start_handler(deps: BaleHandlerDeps) -> None:
 
     @bot.message_handler(commands=["start"])
     def handle_start(message: types.Message) -> None:
+        print("start command received =======================================")
         try:
             user_id = message.from_user.id if message.from_user else None
             greeting = "سلام! برای ثبت‌نام، لطفاً دکمه «ارسال شماره من» را لمس کنید 📲"

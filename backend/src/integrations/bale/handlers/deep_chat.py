@@ -21,6 +21,7 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
     @bot.message_handler(content_types=["text"], func=_plain_text_predicate)
     def handle_deep_chat(message: types.Message) -> None:
+        print("deep chat command received =======================================")
         try:
             if not message.from_user:
                 bot.reply_to(message, "شناسه کاربر در دسترس نیست.")
