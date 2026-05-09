@@ -12,7 +12,7 @@ from graphiti_core.llm_client import OpenAIClient, LLMConfig
 
 from graphiti_core.driver.neo4j_driver import Neo4jDriver
 
-from ingestion.config.falkordb import FALKOR_DATABASE, create_falkor_driver
+from config.falkordb import FALKOR_DATABASE, create_falkor_driver
 
 # --- env ---------------------------------------------------------------------------
 load_dotenv()

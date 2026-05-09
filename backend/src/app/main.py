@@ -1,0 +1,169 @@
+"""FastAPI application entry point."""
+
+from contextlib import asynccontextmanager
+from typing import cast
+
+from fastapi import APIRouter, FastAPI
+from fastapi.exceptions import HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.sql import text
+from starlette.types import ExceptionHandler
+
+from app import logging as app_logging
+from app.errors.handlers import (
+    application_error_handler,
+    general_exception_handler,
+)
+from app.errors.base import ApplicationError
+from app.db.session import engine, init_db
+from app.models import User  # noqa: F401 — must be imported before init_db() so SQLModel registers the table
+from app.settings import settings
+
+# Import routers conditionally to avoid errors if routes don't exist yet
+try:
+    from app.api.v1.api import router as v1_router
+except ImportError:
+    v1_router = APIRouter()
+
+try:
+    from app.api.webhooks.bale import router as bale_webhook_router
+except ImportError:
+    bale_webhook_router = APIRouter()
+
+
+
+
+# Initialize logging
+app_logging.setup_logging()
+logger = app_logging.get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan events."""
+    # Startup: Initialize database and services
+    try:
+        init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}", exc_info=True)
+        raise
+
+    # Startup: Initialize services
+    if settings.bale_bot_token:
+        try:
+            from integrations.bale.bot_service import initialize_bot_service
+
+            print("\n" + "="*60)
+            print("🚀 INITIALIZING BOT SERVICE...")
+            print("="*60 + "\n")
+            
+            bot_service = initialize_bot_service()
+            await bot_service.start_polling()
+            logger.info("Bot service started successfully")
+        except Exception as e:
+            print("\n" + "="*60)
+            print("❌ BOT SERVICE INITIALIZATION FAILED")
+            print("="*60)
+            print(f"Error: {e}")
+            print("="*60 + "\n")
+            
+            logger.error(f"Failed to start bot service: {e}", exc_info=True)
+            # Don't fail application startup if bot fails
+    else:
+        print("\n" + "="*60)
+        print("⚠️  BOT STATUS: NOT CONFIGURED")
+        print("="*60)
+        print("BALE_BOT_TOKEN not set in environment variables")
+        print("Bot service will not start")
+        print("="*60 + "\n")
+        
+        logger.warning("BALE_BOT_TOKEN not configured, bot service will not start")
+
+    yield
+
+    # Shutdown: Cleanup services
+    from integrations.bale.bot_service import get_bot_service
+
+    bot_service = get_bot_service()
+    if bot_service:
+        try:
+            await bot_service.stop_polling()
+            logger.info("Bot service stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping bot service: {e}", exc_info=True)
+
+    try:
+        engine.dispose()
+        logger.info("Database engine disposed successfully")
+    except Exception as e:
+        logger.error(f"Error disposing database engine: {e}", exc_info=True)
+
+
+# Create FastAPI application
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+    debug=settings.debug,
+    lifespan=lifespan,
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Register error handlers
+app.add_exception_handler(
+    ApplicationError, cast(ExceptionHandler, application_error_handler)
+)
+app.add_exception_handler(Exception, cast(ExceptionHandler, general_exception_handler))
+
+# Register routers
+app.include_router(v1_router, prefix="/api/v1", tags=["v1"])
+app.include_router(
+    bale_webhook_router, prefix="/api/webhooks/bale", tags=["webhooks"]
+)
+
+
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {
+        "name": settings.app_name,
+        "version": settings.app_version,
+        "status": "running",
+    }
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        return {"status": "healthy", "db": "healthy"}
+    except Exception as e:
+        logger.error(f"Health check failed for database: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "unhealthy", "db": "unhealthy"},
+        ) from e
+
+
+
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=settings.debug,
+    )

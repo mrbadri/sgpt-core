@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "sgpt-core (dev)",
+      "Group": "Servers",
+      "Host": "db",
+      "Port": 5432,
+      "MaintenanceDB": "bale_bot",
+      "Username": "bale_bot",
+      "SSLMode": "prefer",
+      "PassFile": "/tmp/pgpass"
+    }
+  }
+}

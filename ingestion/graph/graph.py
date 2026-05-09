@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import sys
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,10 +23,15 @@ from graphiti_core import Graphiti
 from graphiti_core.driver.driver import GraphDriver
 from graphiti_core.nodes import EpisodeType
 
-from ingestion.config.falkordb import FALKOR_DATABASE
+from config.falkordb import FALKOR_DATABASE
 
 # ثابت تا با اجرای مستقیم‌ی فایل (__main__) هم همان هندلر رنگی گیرد.
 logger = logging.getLogger("ingestion.graph.graph")
+
+
+def _ingest_trace_timing_enabled() -> bool:
+    v = (os.environ.get("INGEST_TRACE_TIMING") or "").strip().lower()
+    return v in ("1", "true", "yes")
 
 DEFAULT_SPLIT_JSON = (
     Path(__file__).resolve().parent.parent
@@ -334,6 +340,9 @@ async def ingest_split_json(
 
     ``custom_extraction_instructions`` is forwarded to Graphiti ``add_episode`` (entity + edge extraction
     prompts); use it to bias terminology, domain (e.g. biology), or language.
+
+    Set ``INGEST_TRACE_TIMING=1`` to log wall times for ``build_indices_and_constraints``, the resume
+    Cypher query, each ``add_episode`` vs ``apply_episode_metadata``, and summed averages at the end.
     """
     path = split_json_path(path)
     rows = load_docs(path)
@@ -349,17 +358,32 @@ async def ingest_split_json(
         len(rows),
     )
 
+    _trace = _ingest_trace_timing_enabled()
+    sum_add_episode_s = 0.0
+    sum_metadata_s = 0.0
+    n_timed_episodes = 0
+
     if setup_db:
         logger.info("build_indices_and_constraints ...")
+        t_bi = time.perf_counter()
         await graphiti.build_indices_and_constraints()
+        if _trace:
+            logger.info("timing build_indices_and_constraints %.3fs", time.perf_counter() - t_bi)
 
     existing: frozenset[int] = frozenset()
     if resume:
+        t_ex = time.perf_counter()
         existing = await _existing_doc_indices(
             driver=graphiti.driver,
             stem=stem,
             group_id=group_id,
         )
+        if _trace:
+            logger.info(
+                "timing resume_existing_episode_query %.3fs (rows=%s)",
+                time.perf_counter() - t_ex,
+                len(existing),
+            )
         if existing:
             logger.info(
                 "resume: %s episode(s) already in graph for name prefix %r (row indices %s..%s)",
@@ -402,6 +426,7 @@ async def ingest_split_json(
         )
         meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         src_desc = f"{stem} #{i} ({meta.get('filename', '?')})"
+        t_ae = time.perf_counter()
         result = await graphiti.add_episode(
             name=ep_name,
             episode_body=text.strip(),
@@ -411,14 +436,39 @@ async def ingest_split_json(
             group_id=group_id,
             custom_extraction_instructions=custom_extraction_instructions,
         )
+        dt_add = time.perf_counter() - t_ae
+        dt_meta = 0.0
         if persist_metadata:
+            t_md = time.perf_counter()
             await apply_episode_metadata(
                 graphiti.driver,
                 result.episode.uuid,
                 props=episode_metadata_props(meta),
             )
+            dt_meta = time.perf_counter() - t_md
+        if _trace:
+            sum_add_episode_s += dt_add
+            sum_metadata_s += dt_meta
+            n_timed_episodes += 1
+            logger.info(
+                "timing episode=%s add_episode=%.3fs apply_metadata=%.3fs",
+                ep_name,
+                dt_add,
+                dt_meta,
+            )
         added += 1
         logger.info("add_episode done episode_name=%s", ep_name)
+
+    if _trace and n_timed_episodes:
+        logger.info(
+            "timing totals (%s episode(s)): add_episode sum=%.3fs avg=%.3fs | "
+            "apply_metadata sum=%.3fs avg=%.3fs",
+            n_timed_episodes,
+            sum_add_episode_s,
+            sum_add_episode_s / n_timed_episodes,
+            sum_metadata_s,
+            sum_metadata_s / n_timed_episodes,
+        )
 
     logger.info(
         "ingest done added=%s skipped_resume=%s",
@@ -431,7 +481,7 @@ async def ingest_split_json(
 async def main() -> None:
     configure_ingest_logging(level=logging.INFO)
 
-    from ingestion.config.graphiti import create_graphiti
+    from config.graphiti import create_graphiti
 
     extra = (os.environ.get("GRAPHITI_CUSTOM_EXTRACTION_INSTRUCTIONS") or "").strip()
     if not extra:
