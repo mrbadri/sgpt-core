@@ -3,6 +3,11 @@ FROM python:3.11-slim as builder
 
 WORKDIR /app
 
+# Configure Debian mirror
+RUN sed -i 's|http://deb.debian.org/debian|http://mirror-linux.runflare.com/debian|g' /etc/apt/sources.list.d/debian.sources && \
+    sed -i 's|http://security.debian.org/debian-security|http://mirror-linux.runflare.com/debian-security|g' /etc/apt/sources.list.d/debian.sources
+
+
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
@@ -19,6 +24,10 @@ RUN uv sync --frozen
 FROM python:3.11-slim
 
 WORKDIR /app
+
+# Configure Debian mirror
+RUN sed -i 's|http://deb.debian.org/debian|http://mirror-linux.runflare.com/debian|g' /etc/apt/sources.list.d/debian.sources && \
+    sed -i 's|http://security.debian.org/debian-security|http://mirror-linux.runflare.com/debian-security|g' /etc/apt/sources.list.d/debian.sources
 
 # Runtime dependency for psycopg2/libpq
 RUN apt-get update && apt-get install -y --no-install-recommends \
