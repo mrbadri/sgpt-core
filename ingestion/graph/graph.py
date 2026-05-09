@@ -1,13 +1,35 @@
 """Load split-doc JSON and push episodes to Graphiti.
 
-Optional fields from each row's ``metadata`` (``major``, ``grade``, ``subject``, …) are written
-on ``:Episodic`` after ``add_episode`` so you can filter in Cypher, e.g.
-``WHERE e.subject = $subject AND e.grade = $grade``.
+Optional curriculum fields from each row's ``metadata`` are written on ``:Episodic`` after each
+successful ``add_episode``. Textbook scaffolding (``:Book``, ``:Chapter``, ``:Section``) and linkage
+``:Section`` -[:SECTION_HAS_EPISODE]-> ``:Episodic`` (by default) mirrors ``exp_g11_bio_1404_metadata``.
+
+Entity and relationship extraction uses Graphiti's built-in prompts unless you opt in via
+``custom_extraction_instructions``, ``include_domain_extraction_base``, or the
+``GRAPHITI_CUSTOM_EXTRACTION_INSTRUCTIONS`` environment variable.
+
+Optionally an ``Episode`` secondary label is applied when ``add_episode_label`` is true.
+
+Structural links default to ``SECTION_HAS_EPISODE`` (not Saga ``HAS_EPISODE``).
+
+**Several episodics often share one Section** (same ``chapter``/``section`` metadata after semantic
+split). Avoid ``ORDER BY e.name`` when choosing one episode lexicographically: order is **not numeric**
+(for example ``…-00021`` sorts before ``…-00004``). Use ``ORDER BY e.json_row_index``
+(SET during ingest), or ``MATCH … WHERE e.name = $exact``.
+
+List episodic rows: ``MATCH (e:Episodic) WHERE e.group_id = $g RETURN DISTINCT e``.
+
+Set ``INGEST_TRACE_TIMING=1`` (or ``true`` / ``yes`` / ``y`` / ``on``) to log per-phase wall times during
+``ingest_split_json`` (build indices, resume query, each ``add_episode`` vs metadata vs textbook links).
+
+Set ``INGEST_GRAPHITI_TRACE=1`` to log nested Graphiti spans inside each ``add_episode`` (especially each
+``llm.generate`` call and ``prompt.name``). Add ``INGEST_GRAPHITI_TRACE_VERBOSE=1`` for all span attributes.
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import logging
 import os
@@ -25,35 +47,116 @@ from graphiti_core.nodes import EpisodeType
 
 from config.falkordb import FALKOR_DATABASE
 
+
+def _load_textbook_structure():
+    """Load ``textbook_structure`` as a submodule of the ``graph`` package, or by path.
+
+    Running ``python graph/graph.py`` puts ``graph/graph.py`` on ``sys.path`` as top-level ``graph`` —
+    then ``from graph.textbook_structure …`` fails (``graph`` is a module file, not a package).
+    Fallback loads the sibling ``textbook_structure.py`` explicitly.
+    """
+
+    try:
+        from graph.textbook_structure import (
+            ensure_textbook_structure_skeleton as _ensure_skel,
+            label_episodic_as_episode as _label_episode,
+            link_section_has_episode as _link_sec,
+            resolve_structural_source as _resolve_src,
+        )
+    except (ImportError, ModuleNotFoundError):
+        tp = Path(__file__).resolve().parent / "textbook_structure.py"
+        spec = importlib.util.spec_from_file_location("_sgpt_graph_textbook_structure", tp)
+        if spec is None or spec.loader is None:
+            raise
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+        _ensure_skel = mod.ensure_textbook_structure_skeleton
+        _label_episode = mod.label_episodic_as_episode
+        _link_sec = mod.link_section_has_episode
+        _resolve_src = mod.resolve_structural_source
+
+    return _ensure_skel, _label_episode, _link_sec, _resolve_src
+
+
+(
+    ensure_textbook_structure_skeleton,
+    label_episodic_as_episode,
+    link_section_has_episode,
+    resolve_structural_source,
+) = _load_textbook_structure()
+
 # ثابت تا با اجرای مستقیم‌ی فایل (__main__) هم همان هندلر رنگی گیرد.
 logger = logging.getLogger("ingestion.graph.graph")
 
 
 def _ingest_trace_timing_enabled() -> bool:
     v = (os.environ.get("INGEST_TRACE_TIMING") or "").strip().lower()
-    return v in ("1", "true", "yes")
+    return v in ("1", "true", "yes", "y", "on")
 
 DEFAULT_SPLIT_JSON = (
     Path(__file__).resolve().parent.parent
     / "data/normalize/exp-g11-bio/exp-g11-bio-1404.json"
 )
 
-# Shown to Graphiti entity/edge extraction when ``GRAPHITI_CUSTOM_EXTRACTION_INSTRUCTIONS`` is unset.
-DEFAULT_CUSTOM_EXTRACTION_INSTRUCTIONS_EN = (
-    "You are reading instructional text from a Persian (Farsi) high-school biology textbook. "
-    "Extract the underlying concepts and important substantive terms people might see referenced "
-    "again elsewhere (other sections, exams, etc.).\n\n"
-    "PERSIAN SPELLING (STRICT): When you name an entity, reuse the exact phrase as it appears in "
-    "the episode, character-for-character, including the zero-width non-joiner (ZWNJ, Unicode U+200C) "
-    "where the source has it. Do not 'normalize', join, or strip ZWNJ to 'fix' typography.\n\n"
-    "Persian often inserts ZWNJ before suffixes such as plural «های» / «ها» or ezafe «ی» so that "
-    "affixes stay graphically separate from the stem. A common model failure is gluing stem + "
-    "suffix with no ZWNJ.\n"
-    "BAD output: «یاختههای» (wrong—suffix stuck to the stem).\n"
-    "GOOD output: «یاخته‌های» when the passage uses the half-space before «های»—copy that form.\n\n"
-    "If the phrase in the text already lacks ZWNJ, still do not invent merges that blur two words; "
-    "prefer quoting the minimal exact substring from the text as the entity name."
+# Appended when ``prepend_episode_source`` and ``structural_extraction_guard`` are both true
+# («منبع:» preface plus other textbook scaffolding the model should not treat as biology concepts).
+STRUCTURAL_EXTRACTION_GUARD_EN = (
+    "\n\nSTRUCTURAL SCAFFOLDING (Persian textbook):\n"
+    "A) «منبع:» HEADER (narrow): Use **only** when the TEXT begins with one or more lines whose **first line** "
+    "starts with «منبع:».\n"
+    "- Treat **only**: that first «منبع:» line, plus any following lines **until and including the first "
+    "completely blank line**, as catalog/source scaffolding — **not** substantive lesson content.\n"
+    "- Do **not** extract entities, concepts, facts, edges, or relationship endpoints from **that header block alone**.\n"
+    "- **Everything after** that blank line separator is normal curriculum text: apply the usual Graphiti extraction "
+    "rules there in full (entities and inter-entity facts as appropriate).\n"
+    "- If there is **no** «منبع:» prefix at the top, skip subsection A only.\n"
+    "B) FIGURE / IMAGE / CHART CALLOUTS (anywhere): Do **not** mint entities (or use as sole relationship endpoints) "
+    "for bare pointers like «شکل ۱», «تصویر ۲», «نمودار ۱», or the same with Western digits—those are navigational "
+    "labels, not biology concepts.\n"
+    "- Never generalize «do not extract» to Persian body paragraphs that are not part of subsection A's header block."
 )
+
+
+# Used when ``include_domain_extraction_base`` is true and ``GRAPHITI_CUSTOM_EXTRACTION_INSTRUCTIONS`` is unset.
+DEFAULT_CUSTOM_EXTRACTION_INSTRUCTIONS_EN = (
+    "Persian (Farsi) high-school biology: extract the episode's biological concepts and substantive terms "
+    "(ideas and vocabulary likely to show up again—other chapters, exams). "
+    "Try to surface at least one defensible biology concept per episode whenever the passage supports it; "
+    "more on-topic biology is better, but only what the text actually justifies—no padding or generic filler.\n"
+    "PERSIAN SPELLING (STRICT): entity names must match the episode verbatim, including ZWNJ (U+200C)—never normalize it away. "
+    "ZWNJ often sits before plural «های»/«ها» or ezafe «ی»; do not glue stem+suffix (BAD «یاختههای»; GOOD «یاخته‌های» if the source shows the half-space). "
+    "If the source has no ZWNJ there, still avoid invented merges—use the shortest exact substring from the text."
+)
+
+
+def _domain_extraction_base_text(*, include_domain_base: bool) -> str:
+    """Biology/Persian hints: env ``GRAPHITI_CUSTOM_EXTRACTION_INSTRUCTIONS`` overrides built-in default."""
+
+    if not include_domain_base:
+        return ""
+    env = (os.environ.get("GRAPHITI_CUSTOM_EXTRACTION_INSTRUCTIONS") or "").strip()
+    return env if env else DEFAULT_CUSTOM_EXTRACTION_INSTRUCTIONS_EN
+
+
+def build_merged_custom_extraction_instructions(
+    *,
+    custom_extraction_instructions: str | None,
+    include_domain_extraction_base: bool,
+    prepend_episode_source: bool,
+    structural_extraction_guard: bool,
+) -> str | None:
+    """Order: domain base (env or default), caller ``custom_extraction_instructions``, structural guard."""
+
+    parts: list[str] = []
+    base = _domain_extraction_base_text(include_domain_base=include_domain_extraction_base).strip()
+    if base:
+        parts.append(base)
+    if custom_extraction_instructions and str(custom_extraction_instructions).strip():
+        parts.append(str(custom_extraction_instructions).strip())
+    if prepend_episode_source and structural_extraction_guard:
+        parts.append(STRUCTURAL_EXTRACTION_GUARD_EN.strip())
+    return "\n\n".join(parts) if parts else None
 
 
 def split_json_path(path: str | Path | None = None) -> Path:
@@ -84,7 +187,20 @@ def _ref_time(meta: dict[str, Any]) -> datetime:
 
 # Keys from prepare ``metadata`` allowed on ``:Episodic`` (string or int as below).
 EPISODE_METADATA_KEYS: frozenset[str] = frozenset(
-    ("major", "grade", "subject", "chapter", "section", "publish_year"),
+    (
+        "major",
+        "grade",
+        "subject",
+        "chapter",
+        "section",
+        "publish_year",
+        "chapter_id",
+        "chapter_name",
+        "section_id",
+        "section_name",
+        "json_row_index",
+        "semantic_split_source_index",
+    ),
 )
 
 
@@ -114,8 +230,81 @@ def _meta_coerce_int(raw: Any) -> int | None:
     return None
 
 
-def episode_metadata_props(metadata: dict[str, Any]) -> dict[str, Any]:
-    """Map prepare ``metadata`` to properties stored on ``:Episodic``."""
+_PERSIAN_DIGIT_TABLE = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+
+
+def _int_to_persian_digits(n: int) -> str:
+    return str(n).translate(_PERSIAN_DIGIT_TABLE)
+
+
+def _load_exp_g11_bio_1404_metadata_catalog() -> dict[str, Any]:
+    """Resolve ``metadata.exp_g11_bio_1404`` whether this file runs as ``-m graph.graph`` or ``graph/graph.py``."""
+
+    try:
+        from .metadata.exp_g11_bio_1404 import exp_g11_bio_1404_metadata
+    except ImportError:
+        try:
+            from graph.metadata.exp_g11_bio_1404 import exp_g11_bio_1404_metadata
+        except ImportError:
+            from metadata.exp_g11_bio_1404 import exp_g11_bio_1404_metadata
+    return exp_g11_bio_1404_metadata
+
+
+def source_catalog_for_prepare_stem(stem: str) -> dict[str, Any] | None:
+    """Return embedded chapter/section titles for known prepare JSON stems, else ``None``."""
+
+    if stem == "exp-g11-bio-1404":
+        return _load_exp_g11_bio_1404_metadata_catalog()
+    return None
+
+
+def episode_source_preface(metadata: dict[str, Any], catalog: dict[str, Any] | None) -> str | None:
+    """Persian digits: ``منبع: فصل N (عنوان فصل) | گفتار M (عنوان گفتار)``; برای ``section`` ۰: ``… | مقدمه``."""
+
+    rs = resolve_structural_source(metadata, catalog)
+    if rs is None:
+        return None
+    pch = _int_to_persian_digits(rs.chapter_id)
+    chap_part = (
+        f"فصل {pch} ({rs.chapter_name})"
+        if rs.chapter_name.strip()
+        else f"فصل {pch}"
+    )
+    if rs.section_id == 0:
+        suffix = "مقدمه"
+    else:
+        psec = _int_to_persian_digits(rs.section_id)
+        suffix = (
+            f"گفتار {psec} ({rs.section_name})"
+            if rs.section_name.strip()
+            else f"گفتار {psec}"
+        )
+    return f"منبع: {chap_part} | {suffix}"
+
+
+def episode_body_with_source_preface(
+    *,
+    page_content: str,
+    metadata: dict[str, Any],
+    catalog: dict[str, Any] | None,
+    prepend: bool = True,
+) -> str:
+    body = page_content.strip()
+    if not prepend:
+        return body
+    preface = episode_source_preface(metadata, catalog)
+    if preface:
+        return f"{preface}\n\n{body}"
+    return body
+
+
+def episode_metadata_props(
+    metadata: dict[str, Any],
+    catalog: dict[str, Any] | None = None,
+    *,
+    json_row_index: int | None = None,
+) -> dict[str, Any]:
+    """Map prepare ``metadata`` (+ catalog titles + ingest row identity) onto ``:Episodic`` properties."""
 
     props: dict[str, Any] = {}
     mj = _meta_trimmed_str(metadata.get("major"))
@@ -130,6 +319,20 @@ def episode_metadata_props(metadata: dict[str, Any]) -> dict[str, Any]:
         iv = _meta_coerce_int(metadata.get(key))
         if iv is not None:
             props[key] = iv
+
+    rs = resolve_structural_source(metadata, catalog)
+    if rs is not None:
+        props["chapter_id"] = rs.chapter_id
+        props["chapter_name"] = rs.chapter_name
+        props["section_id"] = rs.section_id
+        props["section_name"] = rs.section_name
+
+    if json_row_index is not None:
+        props["json_row_index"] = int(json_row_index)
+
+    split_src = _meta_coerce_int(metadata.get("semantic_split_source_index"))
+    if split_src is not None:
+        props["semantic_split_source_index"] = split_src
     return props
 
 
@@ -208,6 +411,8 @@ class IngestColorFormatter(logging.Formatter):
         ("limit reached ", _C.MAGENTA),
         ("build_indices_and_constraints ", _C.GRAY),
         ("resume off ", _C.YELLOW),
+        ("+ graphiti:", _C.CYAN + _C.DIM),
+        ("- graphiti:", _C.CYAN),
     )
 
     _KV_SPLIT = re.compile(
@@ -243,10 +448,13 @@ class IngestColorFormatter(logging.Formatter):
         if not self._color:
             return msg
 
+        lead_len = len(msg) - len(msg.lstrip(" "))
+        lead, rest = msg[:lead_len], msg[lead_len:]
+
         for pref, cc in self._PREFIX_ACCENT:
-            if msg.startswith(pref):
-                tail = msg[len(pref) :]
-                return cc + pref + _C.RESET + self._shade_kv_plain(tail)
+            if rest.startswith(pref):
+                tail = rest[len(pref) :]
+                return lead + cc + pref + _C.RESET + self._shade_kv_plain(tail)
         return self._shade_kv_plain(msg)
 
     def format(self, record: logging.LogRecord) -> str:
@@ -267,17 +475,21 @@ class IngestColorFormatter(logging.Formatter):
 
 
 def configure_ingest_logging(*, level: int = logging.INFO, quiet_other_loggers: bool = True) -> None:
-    """هندلر رنگی فقط برای ``ingestion.graph.graph``؛ ریشه را خالی می‌گذارد."""
-    ingest_l = logging.getLogger("ingestion.graph.graph")
+    """هندلر رنگی برای ``ingestion.graph.graph`` و (در صورت نیاز) Graphiti trace؛ ریشه را خالی می‌گذارد."""
 
-    ingest_l.handlers.clear()
-    ingest_l.setLevel(level)
-    ingest_l.propagate = False
+    def attach(name: str) -> None:
+        lg = logging.getLogger(name)
+        lg.handlers.clear()
+        lg.setLevel(level)
+        lg.propagate = False
+        h = logging.StreamHandler(sys.stderr)
+        h.setLevel(level)
+        h.setFormatter(IngestColorFormatter())
+        lg.addHandler(h)
 
-    h = logging.StreamHandler(sys.stderr)
-    h.setLevel(level)
-    h.setFormatter(IngestColorFormatter())
-    ingest_l.addHandler(h)
+    attach("ingestion.graph.graph")
+    attach("ingestion.graphiti.trace")
+    attach("config.graphiti")
 
     if quiet_other_loggers:
         logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -330,24 +542,60 @@ async def ingest_split_json(
     resume: bool = True,
     persist_metadata: bool = True,
     custom_extraction_instructions: str | None = None,
+    include_domain_extraction_base: bool = True,
+    structural_extraction_guard: bool = True,
+    prepend_episode_source: bool = True,
+    episode_source_catalog: dict[str, Any] | None = None,
+    model_textbook_structure: bool = True,
+    add_episode_label: bool = False,
+    section_to_episode_rel_type: str = "SECTION_HAS_EPISODE",
 ) -> IngestStats:
     """One episode per non-empty ``page_content``; skips rows already stored (same ``name``, same ``group_id``).
 
     Episode names follow ``"{stem}-{row_index:05d}"`` so rerun after interruption continues safely.
 
-    When ``persist_metadata`` is true, ``metadata`` fields (``major``, ``grade``, ``subject``, …)
-    are SET on ``:Episodic`` after each successful ``add_episode``.
+    When ``persist_metadata`` is true, ``metadata`` fields (``major``, ``grade``, ``subject``, …),
+    structural chapter/section titles, ``json_row_index`` (0-based JSON row, for accurate ``ORDER BY``
+    within a Section — **not** lexicographic ``name`` order), and optional ``semantic_split_source_index``
+    from the prepare row are SET on ``:Episodic`` after each successful ``add_episode``.
 
-    ``custom_extraction_instructions`` is forwarded to Graphiti ``add_episode`` (entity + edge extraction
-    prompts); use it to bias terminology, domain (e.g. biology), or language.
+    When ``prepend_episode_source`` is true (default), each ``episode_body`` begins with ``منبع:`` —
+    ``فصل n (نام فصل) | گفتار m (نام گفتار)`` with Persian numerals (section ``0`` uses ``| مقدمه``).
+    Titles resolve from ``episode_source_catalog`` / known stems.
 
-    Set ``INGEST_TRACE_TIMING=1`` to log wall times for ``build_indices_and_constraints``, the resume
-    Cypher query, each ``add_episode`` vs ``apply_episode_metadata``, and summed averages at the end.
+    When ``model_textbook_structure`` is true and a textbook catalog exists, ingestion MERGEs
+    ``Book`` / ``Chapter`` / ``Section`` nodes plus ``HAS_CHAPTER`` / ``HAS_SECTION``, links each
+    new ``Episodic`` from ``Section`` via ``SECTION_HAS_EPISODE`` by default (``HAS_EPISODE`` Saga-type
+    rel name is avoided unless ``section_to_episode_rel_type`` is set to ``HAS_EPISODE``), and optionally
+    labels ``Episodic`` additionally as ``Episode`` when ``add_episode_label`` is true.
+
+    By default, ``custom_extraction_instructions`` passed to Graphiti is ``None`` (library built-in
+    extraction). Set ``include_domain_extraction_base=True`` to layer env
+    ``GRAPHITI_CUSTOM_EXTRACTION_INSTRUCTIONS`` or ``DEFAULT_CUSTOM_EXTRACTION_INSTRUCTIONS_EN``, and/or
+    pass ``custom_extraction_instructions`` for an extra middle layer. When ``prepend_episode_source``
+    and ``structural_extraction_guard`` are both true, structural-scaffolding instructions are appended
+    (the «منبع:» header plus bare figure/image/chart callouts such as «شکل ۱» / «تصویر ۱» / «نمودار ۱»).
+
+    Set ``INGEST_TRACE_TIMING`` to a truthy value (``1``, ``true``, ``yes``, ``y``, ``on``) to log wall times
+    for ``build_indices_and_constraints``, the resume Cypher query, each ``add_episode`` vs
+    ``apply_episode_metadata`` vs textbook-structure writes, and summed averages at the end.
+    Set ``INGEST_GRAPHITI_TRACE`` to log nested Graphiti spans (each ``llm.generate`` with ``prompt.name``);
+    ``INGEST_GRAPHITI_TRACE_VERBOSE=1`` dumps all span attributes.
     """
     path = split_json_path(path)
     rows = load_docs(path)
     stem = path.stem
 
+    structure_catalog = episode_source_catalog
+    if structure_catalog is None and (prepend_episode_source or model_textbook_structure):
+        structure_catalog = source_catalog_for_prepare_stem(stem)
+
+    merged_custom_extraction = build_merged_custom_extraction_instructions(
+        custom_extraction_instructions=custom_extraction_instructions,
+        include_domain_extraction_base=include_domain_extraction_base,
+        prepend_episode_source=prepend_episode_source,
+        structural_extraction_guard=structural_extraction_guard,
+    )
     logger.info(
         "ingest start path=%s stem=%s group_id=%s resume=%s limit=%s json_rows=%s",
         path,
@@ -359,8 +607,14 @@ async def ingest_split_json(
     )
 
     _trace = _ingest_trace_timing_enabled()
+    if _trace:
+        logger.info(
+            "ingest trace timing enabled (INGEST_TRACE_TIMING=%r)",
+            (os.environ.get("INGEST_TRACE_TIMING") or "").strip(),
+        )
     sum_add_episode_s = 0.0
     sum_metadata_s = 0.0
+    sum_struct_s = 0.0
     n_timed_episodes = 0
 
     if setup_db:
@@ -369,6 +623,25 @@ async def ingest_split_json(
         await graphiti.build_indices_and_constraints()
         if _trace:
             logger.info("timing build_indices_and_constraints %.3fs", time.perf_counter() - t_bi)
+
+    if model_textbook_structure and isinstance(structure_catalog, dict) and structure_catalog.get("chapters"):
+        logger.info(
+            "textbook structure MERGE (Book → Chapter → Section) from catalog textbook_id=%r group_id=%r",
+            stem,
+            group_id,
+        )
+        t_sk = time.perf_counter()
+        await ensure_textbook_structure_skeleton(
+            graphiti.driver,
+            group_id=group_id,
+            textbook_id=stem,
+            catalog=structure_catalog,
+        )
+        if _trace:
+            logger.info(
+                "timing ensure_textbook_structure_skeleton %.3fs",
+                time.perf_counter() - t_sk,
+            )
 
     existing: frozenset[int] = frozenset()
     if resume:
@@ -426,48 +699,89 @@ async def ingest_split_json(
         )
         meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         src_desc = f"{stem} #{i} ({meta.get('filename', '?')})"
+        episode_body = episode_body_with_source_preface(
+            page_content=text,
+            metadata=meta,
+            catalog=structure_catalog,
+            prepend=prepend_episode_source,
+        )
         t_ae = time.perf_counter()
         result = await graphiti.add_episode(
             name=ep_name,
-            episode_body=text.strip(),
+            episode_body=episode_body,
             source_description=src_desc,
             reference_time=_ref_time(meta),
             source=EpisodeType.text,
             group_id=group_id,
-            custom_extraction_instructions=custom_extraction_instructions,
+            custom_extraction_instructions=merged_custom_extraction,
+        )
+        logger.info(
+            "add_episode extracted episode_name=%s uuid=%s entities=%s entity_edges=%s episodic_edges=%s",
+            ep_name,
+            result.episode.uuid,
+            len(result.nodes),
+            len(result.edges),
+            len(result.episodic_edges),
         )
         dt_add = time.perf_counter() - t_ae
         dt_meta = 0.0
+        dt_struct = 0.0
+
         if persist_metadata:
             t_md = time.perf_counter()
             await apply_episode_metadata(
                 graphiti.driver,
                 result.episode.uuid,
-                props=episode_metadata_props(meta),
+                props=episode_metadata_props(meta, structure_catalog, json_row_index=i),
             )
             dt_meta = time.perf_counter() - t_md
+        if model_textbook_structure:
+            t_st = time.perf_counter()
+            if add_episode_label:
+                await label_episodic_as_episode(
+                    graphiti.driver,
+                    group_id=group_id,
+                    episodic_uuid=result.episode.uuid,
+                )
+            rs = resolve_structural_source(meta, structure_catalog)
+            if rs is not None:
+                await link_section_has_episode(
+                    graphiti.driver,
+                    group_id=group_id,
+                    textbook_id=stem,
+                    chapter_id=rs.chapter_id,
+                    section_id=rs.section_id,
+                    episodic_uuid=result.episode.uuid,
+                    relationship_type=section_to_episode_rel_type,
+                )
+            dt_struct = time.perf_counter() - t_st
         if _trace:
             sum_add_episode_s += dt_add
             sum_metadata_s += dt_meta
+            sum_struct_s += dt_struct
             n_timed_episodes += 1
             logger.info(
-                "timing episode=%s add_episode=%.3fs apply_metadata=%.3fs",
+                "timing episode=%s add_episode=%.3fs apply_metadata=%.3fs textbook_structure=%.3fs",
                 ep_name,
                 dt_add,
                 dt_meta,
+                dt_struct,
             )
         added += 1
         logger.info("add_episode done episode_name=%s", ep_name)
 
     if _trace and n_timed_episodes:
+        n = n_timed_episodes
         logger.info(
             "timing totals (%s episode(s)): add_episode sum=%.3fs avg=%.3fs | "
-            "apply_metadata sum=%.3fs avg=%.3fs",
-            n_timed_episodes,
+            "apply_metadata sum=%.3fs avg=%.3fs | textbook_structure sum=%.3fs avg=%.3fs",
+            n,
             sum_add_episode_s,
-            sum_add_episode_s / n_timed_episodes,
+            sum_add_episode_s / n,
             sum_metadata_s,
-            sum_metadata_s / n_timed_episodes,
+            sum_metadata_s / n,
+            sum_struct_s,
+            sum_struct_s / n,
         )
 
     logger.info(
@@ -483,15 +797,9 @@ async def main() -> None:
 
     from config.graphiti import create_graphiti
 
-    extra = (os.environ.get("GRAPHITI_CUSTOM_EXTRACTION_INSTRUCTIONS") or "").strip()
-    if not extra:
-        extra = DEFAULT_CUSTOM_EXTRACTION_INSTRUCTIONS_EN
     g = create_graphiti()
     try:
-        stats = await ingest_split_json(
-            g,
-            # custom_extraction_instructions=extra or None,
-        )
+        stats = await ingest_split_json(g)
         suffix = ""
         if stats.skipped_already_in_graph:
             suffix = f" ({stats.skipped_already_in_graph} already in graph)"

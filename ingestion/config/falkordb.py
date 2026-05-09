@@ -15,7 +15,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Graph naming: clone driver uses ``database=group_id`` when it differs from default graph.
-FALKOR_DATABASE = os.getenv("FALKOR_DATABASE", "exp_g11_bio_1404_4o_mini")
+FALKOR_DATABASE = os.getenv("FALKOR_DATABASE", "exp_g11_bio_1404_5_mini_stv6")
 FALKOR_HOST = os.getenv("FALKOR_HOST", "45.90.74.242")
 FALKOR_PORT = int(os.getenv("FALKOR_PORT", "7379"))
 

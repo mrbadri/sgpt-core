@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -10,9 +11,15 @@ from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerCli
 from graphiti_core.embedder import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.llm_client import OpenAIClient, LLMConfig
 
-from graphiti_core.driver.neo4j_driver import Neo4jDriver
+from config.falkordb import create_falkor_driver
 
-from config.falkordb import FALKOR_DATABASE, create_falkor_driver
+logger = logging.getLogger(__name__)
+
+
+def _truthy_env(name: str) -> bool:
+    v = (os.environ.get(name) or "").strip().lower()
+    return v in ("1", "true", "yes", "y", "on")
+
 
 # --- env ---------------------------------------------------------------------------
 load_dotenv()
@@ -80,14 +87,26 @@ embedder = OpenAIEmbedder(
 
 def create_graphiti(**overrides) -> Graphiti:
     """Return Graphiti with our Neo4j DB and clients; ``overrides`` map to ``Graphiti(...)`` kwargs."""
-    
 
     driver = create_falkor_driver()
 
-    return Graphiti(
-        graph_driver=driver,
-        embedder=embedder,
-        llm_client=llm_client,
-        cross_encoder=reranker_client,
-        **overrides,
-    )
+    kwargs: dict = {
+        "graph_driver": driver,
+        "embedder": embedder,
+        "llm_client": llm_client,
+        "cross_encoder": reranker_client,
+    }
+    if _truthy_env("INGEST_GRAPHITI_TRACE"):
+        from config.graphiti_trace import LoggingTracer
+
+        trace_log = logging.getLogger("ingestion.graphiti.trace")
+        kwargs["tracer"] = LoggingTracer(
+            trace_log,
+            verbose_attrs=_truthy_env("INGEST_GRAPHITI_TRACE_VERBOSE"),
+        )
+        logger.info(
+            "INGEST_GRAPHITI_TRACE enabled (verbose_attrs=%s)",
+            _truthy_env("INGEST_GRAPHITI_TRACE_VERBOSE"),
+        )
+    kwargs.update(overrides)
+    return Graphiti(**kwargs)

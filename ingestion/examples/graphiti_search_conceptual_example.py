@@ -30,7 +30,7 @@ import asyncio
 from graphiti_core.search.search_config import EdgeSearchMethod, NodeSearchMethod
 from graphiti_core.search.search_config_recipes import COMBINED_HYBRID_SEARCH_CROSS_ENCODER
 
-from ingestion.config.graphiti import create_graphiti
+from config.graphiti import create_graphiti
 
 # Underscores: FalkorDB fulltext uses RediSearch; hyphens in group_id break @group_id: filters.
 # GROUP_ID = "exp_g11_bio_chapter_3_4o"
@@ -73,7 +73,8 @@ def search_config_cross_encoder_no_bfs(limit: int = SEARCH_LIMIT):
 
 
 CONCEPTUAL_QUERY = (
-    "عوامل حفاظتی از مغز رو نام ببر"
+    "پس از انتقال پیام عصبی، مولکول‌های ناقل باقی‌مانده، باید از فضای همایه‌ای (سیناپسی) تخلیه شوند."
+    # "عوامل حفاظتی از مغز رو نام ببر"
     # "سد خونی-مغزی چگونه از مغز در برابر مواد مضر و میکروب‌ها محافظت می‌کند "
     # "و چه موادی می‌توانند از این سد عبور کنند؟"
 )
