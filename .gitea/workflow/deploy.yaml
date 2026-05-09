@@ -1,0 +1,35 @@
+name: Build and Deploy
+run-name: ${{ gitea.actor }} is deploying the app 🚀
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # مرحله اول: دریافت کد از گیتیا به صورت دستی (بدون نیاز به اینترنت)
+      - name: Manual Checkout
+        run: |
+          echo "Cleaning workspace..."
+          rm -rf ./*
+          echo "Cloning repository from internal Gitea..."
+          # استفاده از توکن داخلی برای احراز هویت خودکار
+          git clone https://${{ gitea.token }}@git.mrbadri.ir/${{ gitea.repository }}.git .
+          # سوئیچ به آخرین کامیت پاش شده
+          git checkout ${{ gitea.sha }}
+
+      # مرحله دوم: بیلد ایمیج با docker/docker-compose.prod.yml (همان مسیر make prod-build)
+      - name: Build Docker Image
+        run: |
+          echo "Starting Docker Build..."
+          docker compose -f docker/docker-compose.prod.yml build
+
+      # مرحله سوم: اجرای اپلیکیشن (نیاز به .env در ریشهٔ مخزن روی runner، مطابق docker-compose.prod.yml)
+      - name: Deploy Application
+        run: |
+          echo "Updating containers..."
+          docker compose -f docker/docker-compose.prod.yml up -d
+          echo "Deployment finished successfully!"
