@@ -4,6 +4,7 @@ import asyncio
 import threading
 from typing import Optional
 
+import requests as _requests
 import telebot
 from telebot import apihelper
 
@@ -15,6 +16,24 @@ from integrations.bale.handlers.deps import BaleHandlerDeps
 from integrations.bale.messaging import reply_long_text
 
 logger = app_logging.get_logger(__name__)
+
+
+def _bale_request_sender(method, url, params=None, files=None, timeout=None, proxies=None):
+    """Send POST payloads in the request body to avoid URI-Too-Large errors.
+
+    pyTelegramBotAPI passes params= to requests.request(), which always encodes
+    them into the URL query string.  For long Persian text that URL-encodes to
+    ~6 bytes per character this exceeds nginx's default URI limit (8 KB) on
+    tapi.bale.ai and causes 414 responses.  Moving the payload to the POST body
+    fixes the issue without changing chunk sizes.
+    """
+    if method.lower() == "post" and params and not files:
+        return _requests.request(
+            method, url, data=params, timeout=timeout, proxies=proxies
+        )
+    return _requests.request(
+        method, url, params=params, files=files, timeout=timeout, proxies=proxies
+    )
 
 
 class BotService:
@@ -29,6 +48,7 @@ class BotService:
             raise ValueError("BALE_BOT_TOKEN must be set in environment variables")
 
         apihelper.API_URL = self.api_url
+        apihelper.CUSTOM_REQUEST_SENDER = _bale_request_sender
 
         self.bot = telebot.TeleBot(self.token)
         self._polling_thread: Optional[threading.Thread] = None

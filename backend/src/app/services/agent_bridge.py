@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from collections.abc import Callable
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.schema import StreamEvent
 
 
 def _assistant_message_text(content: Any) -> str:
@@ -44,25 +46,68 @@ class BaleAgentBridge:
             return self._agent
 
     def invoke_reply(self, bale_tid: int, text: str) -> str:
-        """Run the agent for a Bale Telegram user id and return the last assistant text."""
+        """Run the agent and return the last assistant text (no status callbacks)."""
+        return self.invoke_reply_with_status(bale_tid, text)
+
+    def invoke_reply_with_status(
+        self,
+        bale_tid: int,
+        text: str,
+        on_thinking: Callable[[], None] | None = None,
+        on_searching: Callable[[], None] | None = None,
+        on_got_it: Callable[[], None] | None = None,
+    ) -> str:
+        """Run the agent via astream_events and fire status callbacks at key moments.
+
+        Callbacks are called from the thread that invokes this method (via asyncio.run),
+        so they may perform synchronous Bale API calls safely.
+        """
         agent = self._get_agent()
-        cfg: RunnableConfig = {
-            "configurable": {"thread_id": f"bale-{bale_tid}"},
-        }
+        cfg: RunnableConfig = {"configurable": {"thread_id": f"bale-{bale_tid}"}}
 
-        async def _run() -> dict[str, Any]:
-            return await agent.ainvoke(
-                {
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": text,
-                        }
-                    ]
-                },
+        async def _stream() -> str:
+            thinking_fired = False
+            searching_fired = False
+            got_it_fired = False
+            final_content: str = ""
+
+            async for event in agent.astream_events(
+                {"messages": [{"role": "user", "content": text}]},
                 config=cfg,
-            )
+                version="v2",
+            ):
+                event: StreamEvent
+                kind: str = event["event"]
 
-        result = asyncio.run(_run())
-        last = result["messages"][-1]
-        return _assistant_message_text(getattr(last, "content", last)).strip()
+                if not thinking_fired and kind in ("on_chain_start", "on_chat_model_start"):
+                    thinking_fired = True
+                    if on_thinking:
+                        on_thinking()
+
+                elif kind == "on_tool_start":
+                    if not searching_fired:
+                        searching_fired = True
+                        if on_searching:
+                            on_searching()
+
+                elif kind == "on_tool_end":
+                    if not got_it_fired:
+                        got_it_fired = True
+                        if on_got_it:
+                            on_got_it()
+
+                elif kind == "on_chain_end":
+                    output = event.get("data", {}).get("output")
+                    if isinstance(output, dict) and "messages" in output:
+                        msgs = output["messages"]
+                        if msgs:
+                            last = msgs[-1]
+                            text_candidate = _assistant_message_text(
+                                getattr(last, "content", last)
+                            ).strip()
+                            if text_candidate:
+                                final_content = text_candidate
+
+            return final_content
+
+        return asyncio.run(_stream())
