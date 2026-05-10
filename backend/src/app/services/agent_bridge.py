@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Union
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.schema import StreamEvent
+
+from app.agent.sample import StudentResponse
 
 
 def _assistant_message_text(content: Any) -> str:
@@ -45,8 +47,8 @@ class BaleAgentBridge:
                 self._agent = build_graphiti_deep_agent(checkpointer=MemorySaver())
             return self._agent
 
-    def invoke_reply(self, bale_tid: int, text: str) -> str:
-        """Run the agent and return the last assistant text (no status callbacks)."""
+    def invoke_reply(self, bale_tid: int, text: str) -> Union[StudentResponse, str]:
+        """Run the agent and return the structured response or last assistant text."""
         return self.invoke_reply_with_status(bale_tid, text)
 
     def invoke_reply_with_status(
@@ -56,19 +58,20 @@ class BaleAgentBridge:
         on_thinking: Callable[[], None] | None = None,
         on_searching: Callable[[], None] | None = None,
         on_got_it: Callable[[], None] | None = None,
-    ) -> str:
+    ) -> Union[StudentResponse, str]:
         """Run the agent via astream_events and fire status callbacks at key moments.
 
-        Callbacks are called from the thread that invokes this method (via asyncio.run),
-        so they may perform synchronous Bale API calls safely.
+        Returns a StudentResponse when the agent produces structured output,
+        otherwise falls back to the last assistant text string.
         """
         agent = self._get_agent()
         cfg: RunnableConfig = {"configurable": {"thread_id": f"bale-{bale_tid}"}}
 
-        async def _stream() -> str:
+        async def _stream() -> Union[StudentResponse, str]:
             thinking_fired = False
             searching_fired = False
             got_it_fired = False
+            final_structured: StudentResponse | None = None
             final_content: str = ""
 
             async for event in agent.astream_events(
@@ -98,16 +101,20 @@ class BaleAgentBridge:
 
                 elif kind == "on_chain_end":
                     output = event.get("data", {}).get("output")
-                    if isinstance(output, dict) and "messages" in output:
-                        msgs = output["messages"]
-                        if msgs:
-                            last = msgs[-1]
-                            text_candidate = _assistant_message_text(
-                                getattr(last, "content", last)
-                            ).strip()
-                            if text_candidate:
-                                final_content = text_candidate
+                    if isinstance(output, dict):
+                        sr = output.get("structured_response")
+                        if isinstance(sr, StudentResponse):
+                            final_structured = sr
+                        elif "messages" in output:
+                            msgs = output["messages"]
+                            if msgs:
+                                last = msgs[-1]
+                                text_candidate = _assistant_message_text(
+                                    getattr(last, "content", last)
+                                ).strip()
+                                if text_candidate:
+                                    final_content = text_candidate
 
-            return final_content
+            return final_structured if final_structured is not None else final_content
 
         return asyncio.run(_stream())

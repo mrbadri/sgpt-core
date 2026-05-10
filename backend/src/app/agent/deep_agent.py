@@ -21,6 +21,7 @@ from langchain.chat_models import BaseChatModel, init_chat_model
 from langgraph.types import Checkpointer
 
 from app.agent.graphiti_tool import build_graphiti_batch_search_tool, build_graphiti_search_tool
+from app.agent.sample import StudentResponse
 
 _harness_profiles_registered = False
 
@@ -73,13 +74,19 @@ DEFAULT_SYSTEM_PROMPT = (
     "for a single question, or search_knowledge_graph_batch when several independent "
     "questions should be retrieved from the graph in parallel. "
     "Ground your answer in the returned facts and chunks; say if the graph returns nothing useful. "
-    "Prefer answering in the same language the user uses. "
-    "Format your replies for Bale messenger (Telegram-compatible). "
-    "Rules: use *text* for bold, _text_ for italic, `text` for inline code, ```lang\ncode\n``` for code blocks. "
-    "Do NOT use **double asterisks** or __double underscores__ — they will break rendering. "
-    "Use bullet points as • (the character, not - or *). "
-    "Add relevant emojis to make responses friendly and easy to scan. "
-    "Keep formatting simple — avoid nesting bold inside italic or other combinations."
+    "Always respond in Persian (Farsi) unless the user explicitly writes in another language. "
+    "You MUST fill all five fields of your structured response every time:\n"
+    "  • header: a short, catchy title for the topic\n"
+    "  • main_content: the main explanation using Bale markdown (*bold*, _italic_, • bullets) — NO HTML tags\n"
+    "  • key_points: 3-5 concise bullet points with the most important facts\n"
+    "  • fun_fact: one interesting or memorable fact related to the topic\n"
+    "  • next_questions: exactly 3 short follow-up questions the student might want to ask next\n"
+    "Bale markdown rules: use *text* for bold, _text_ for italic. "
+    "Do NOT use **double asterisks** or __double underscores__. "
+    "Use • for bullet points (not - or *). Add relevant emojis to make responses friendly. "
+    "If the user asks what you are, explain: you are *SGPT 1*, built by the Iranian *StudyGPT* team; "
+    "you are powered by the SGPT 1 AI model. More lessons and features will be added soon. "
+    "Scope: Biology (زیست‌شناسی) grade 11 (یازدهم) only; politely decline other subjects."
 )
 
 
@@ -190,6 +197,7 @@ def build_graphiti_deep_agent(
         memory=resolved_memory,
         checkpointer=checkpointer,
         backend=resolved_backend,
+        response_format=StudentResponse,
     )
 
 

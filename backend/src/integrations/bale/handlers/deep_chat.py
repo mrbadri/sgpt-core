@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import random
+from typing import Union
 
 from telebot import types
 
+from app.agent.sample import StudentResponse
 from app.db.session import get_db_session
 from app.services import bale_user_service
 from integrations.bale.formatting import markdown_to_bale_markdown, split_reply_text
@@ -50,6 +52,33 @@ _GOT_IT_STATUS_LINES: tuple[str, ...] = (
     "🎈 تمومه! برو بریم برای دیدن جواب...",
 )
 
+# Maps bale_tid -> list of next_questions from the last structured response
+_pending_questions: dict[str, list[str]] = {}
+
+
+def _format_structured_response(resp: StudentResponse) -> str:
+    """Convert a StudentResponse into a Bale-markdown formatted string."""
+    lines: list[str] = []
+    lines.append(f"*{resp.header}*")
+    lines.append("")
+    lines.append(resp.main_content)
+    if resp.key_points:
+        lines.append("")
+        lines.append("📌 *نکات کلیدی:*")
+        for point in resp.key_points:
+            lines.append(f"• {point}")
+    if resp.fun_fact:
+        lines.append("")
+        lines.append(f"💡 {resp.fun_fact}")
+    return "\n".join(lines)
+
+
+def _next_questions_keyboard(bale_tid: int, questions: list[str]) -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+    for i, q in enumerate(questions):
+        markup.add(types.InlineKeyboardButton(q, callback_data=f"nq:{bale_tid}:{i}"))
+    return markup
+
 
 def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
     bot = deps.bot
@@ -60,6 +89,56 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
     def _plain_text_predicate(m: types.Message) -> bool:
         txt = getattr(m, "text", None)
         return isinstance(txt, str) and bool(txt.strip()) and not txt.strip().startswith("/")
+
+    def _send_answer(
+        bale_tid: int,
+        answer: Union[StudentResponse, str],
+        reply_to: types.Message,
+        status_msg: types.Message | None,
+    ) -> None:
+        """Render and send the agent answer, replacing the status message if present."""
+        if isinstance(answer, StudentResponse):
+            _pending_questions[str(bale_tid)] = list(answer.next_questions)
+            body = _format_structured_response(answer)
+            body_md = markdown_to_bale_markdown(body)
+            markup = _next_questions_keyboard(bale_tid, answer.next_questions)
+
+            if status_msg is not None:
+                try:
+                    bot.edit_message_text(
+                        body_md,
+                        chat_id=status_msg.chat.id,
+                        message_id=status_msg.message_id,
+                        parse_mode="Markdown",
+                        reply_markup=markup,
+                    )
+                    return
+                except Exception:
+                    pass
+            bot.send_message(reply_to.chat.id, body_md, parse_mode="Markdown", reply_markup=markup)
+        else:
+            # Plain-text fallback
+            text_answer = answer if answer else (
+                "🧐 عجب سوال چالشی‌ای! دقیقاً متوجه منظورت نشدم. یه جور دیگه بپرس یا جزئیات بیشتری بهم بده تا بترکونیم!"
+            )
+            answer_md = markdown_to_bale_markdown(text_answer)
+            parts = split_reply_text(answer_md)
+            if status_msg is not None and parts:
+                first_chunk = parts[0] or " "
+                try:
+                    bot.edit_message_text(
+                        first_chunk,
+                        chat_id=status_msg.chat.id,
+                        message_id=status_msg.message_id,
+                        parse_mode="Markdown",
+                    )
+                except Exception:
+                    reply_long(reply_to, answer_md)
+                    return
+                for chunk in parts[1:]:
+                    bot.send_message(reply_to.chat.id, chunk or " ", parse_mode="Markdown")
+            else:
+                reply_long(reply_to, text_answer)
 
     @bot.message_handler(content_types=["text"], func=_plain_text_predicate)
     def handle_deep_chat(message: types.Message) -> None:
@@ -96,7 +175,6 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 )
                 return
 
-            # Mutable container so nested closures can reassign the reference.
             status_msg: list[types.Message | None] = [None]
 
             def _edit_status(text: str) -> None:
@@ -145,30 +223,7 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 )
                 return
 
-            if not answer:
-                answer = (
-                    "🧐 عجب سوال چالشی‌ای! دقیقاً متوجه منظورت نشدم. یه جور دیگه بپرس یا جزئیات بیشتری بهم بده تا بترکونیم!"
-                )
-
-            answer_md = markdown_to_bale_markdown(answer)
-            parts = split_reply_text(answer_md)
-            status = status_msg[0]
-            if status is not None and parts:
-                first_chunk = parts[0] or " "
-                try:
-                    bot.edit_message_text(
-                        first_chunk,
-                        chat_id=status.chat.id,
-                        message_id=status.message_id,
-                        parse_mode="Markdown",
-                    )
-                except Exception:
-                    reply_long(message, answer_md)
-                else:
-                    for chunk in parts[1:]:
-                        bot.send_message(message.chat.id, chunk or " ", parse_mode="Markdown")
-            else:
-                reply_long(message, answer)
+            _send_answer(bale_tid, answer, message, status_msg[0])
 
         except Exception as e:
             logger.error(f"Error in handle_deep_chat: {e}", exc_info=True)
@@ -177,5 +232,85 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                     message,
                     "🎙️ یک-دو-سه، امتحان می‌کنیم! یه نویز کوچیک افتاد تو ارتباطمون. یه بار دیگه بفرست که پرقدرت بریم جلو! 💪",
                 )
+            except Exception:
+                pass
+
+    @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("nq:"))
+    def handle_next_question_callback(call: types.CallbackQuery) -> None:
+        try:
+            parts = call.data.split(":", 2)
+            if len(parts) != 3:
+                bot.answer_callback_query(call.id)
+                return
+
+            _, tid_str, idx_str = parts
+            bale_tid = int(tid_str)
+            idx = int(idx_str)
+
+            questions = _pending_questions.get(str(bale_tid), [])
+            if idx >= len(questions):
+                bot.answer_callback_query(call.id, "سوال پیدا نشد!")
+                return
+
+            question = questions[idx]
+            bot.answer_callback_query(call.id, "⏳ دارم جواب می‌دم...")
+
+            if not call.message:
+                return
+
+            status_msg: list[types.Message | None] = [None]
+
+            def _edit_status(text: str) -> None:
+                msg = status_msg[0]
+                if msg is None:
+                    return
+                try:
+                    bot.edit_message_text(text, chat_id=msg.chat.id, message_id=msg.message_id)
+                except Exception:
+                    pass
+
+            def on_thinking() -> None:
+                try:
+                    status_msg[0] = bot.send_message(
+                        call.message.chat.id,
+                        random.choice(_THINKING_STATUS_LINES),
+                    )
+                except Exception:
+                    pass
+
+            def on_searching() -> None:
+                _edit_status(random.choice(_SEARCHING_STATUS_LINES))
+
+            def on_got_it() -> None:
+                _edit_status(random.choice(_GOT_IT_STATUS_LINES))
+
+            try:
+                answer = bridge.invoke_reply_with_status(
+                    bale_tid,
+                    question,
+                    on_thinking=on_thinking,
+                    on_searching=on_searching,
+                    on_got_it=on_got_it,
+                )
+            except Exception as agent_err:
+                logger.error(f"Deep agent error (callback): {agent_err}", exc_info=True)
+                msg = status_msg[0]
+                if msg:
+                    try:
+                        bot.delete_message(msg.chat.id, msg.message_id)
+                    except Exception:
+                        pass
+                bot.send_message(
+                    call.message.chat.id,
+                    "⚡ انرژی سیستم یه لحظه افت کرد! دوباره بپرس تا با قدرت کامل جواب بدم. این دفعه حله! 🚀",
+                )
+                return
+
+            _send_answer(bale_tid, answer, call.message, status_msg[0])
+
+        except Exception as e:
+            logger.error(f"Error in handle_next_question_callback: {e}", exc_info=True)
+            try:
+                bot.answer_callback_query(call.id, "خطایی پیش آمد!")
             except Exception:
                 pass
