@@ -1,6 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
+import { AnimatedGridPattern } from "@workspace/ui/components/animated-grid-pattern"
 import ComparisonTable from "./ComparisonTable"
 
 const fadeUp = {
@@ -15,15 +16,30 @@ const stagger = {
 
 export default function Hero() {
   return (
-    <section id="hero" className="relative min-h-screen flex flex-col justify-center pt-24 pb-16 px-4 overflow-hidden">
+    <section
+      id="hero"
+      className="relative flex min-h-screen flex-col justify-center overflow-hidden px-4 pt-24 pb-16"
+    >
+      {/* Animated grid background */}
+      <AnimatedGridPattern
+        numSquares={30}
+        maxOpacity={0.08}
+        duration={3}
+        repeatDelay={1}
+        className="[mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,black_40%,transparent_100%)] fill-foreground/[0.04] stroke-foreground/[0.06] md:[mask-image:radial-gradient(ellipse_60%_80%_at_50%_0%,black_50%,transparent_100%)]"
+      />
+
       {/* Background gradient blobs */}
       <div
         aria-hidden
-        className="absolute top-0 start-1/2 -translate-x-1/2 w-[800px] h-[600px] rounded-full opacity-10 dark:opacity-5 blur-3xl pointer-events-none"
-        style={{ background: "radial-gradient(ellipse, oklch(0.62 0.22 255), transparent 70%)" }}
+        className="pointer-events-none absolute start-1/2 top-0 h-[600px] w-[800px] -translate-x-1/2 rounded-full opacity-10 blur-3xl dark:opacity-5"
+        style={{
+          background:
+            "radial-gradient(ellipse, oklch(0.62 0.22 255), transparent 70%)",
+        }}
       />
 
-      <div className="relative max-w-4xl mx-auto w-full text-center">
+      <div className="relative mx-auto w-full max-w-4xl text-center">
         <motion.div
           variants={stagger}
           initial="hidden"
@@ -32,7 +48,7 @@ export default function Hero() {
         >
           {/* Eyebrow badge */}
           <motion.div variants={fadeUp}>
-            <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-brand-muted text-brand text-sm font-medium border border-brand/20">
+            <span className="inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand-muted px-4 py-1.5 text-sm font-medium text-brand">
               <span>✨</span>
               <span>هوش مصنوعی تخصصی کنکور ایران</span>
             </span>
@@ -41,7 +57,7 @@ export default function Hero() {
           {/* Main headline */}
           <motion.h1
             variants={fadeUp}
-            className="text-4xl md:text-6xl lg:text-7xl font-black leading-tight tracking-tight"
+            className="text-4xl leading-tight font-black tracking-tight md:text-6xl lg:text-7xl"
           >
             چت‌جی‌پی‌تی کتاب درسی تو رو نخونده،
             <br />
@@ -51,36 +67,37 @@ export default function Hero() {
           {/* Sub-headline */}
           <motion.p
             variants={fadeUp}
-            className="text-lg md:text-xl text-muted-foreground max-w-2xl leading-relaxed"
+            className="max-w-2xl text-lg leading-relaxed text-muted-foreground md:text-xl"
           >
-            سوالات ریاضی، فیزیک، شیمی و زبان کنکور رو دقیقاً به روش کتاب‌های درسی ایران حل کن
-            و آماده امتحان نهایی و کنکور سراسری بشو.
+            سوالات زیست، ریاضی، فیزیک، شیمی و زبان کنکور رو{" "}
+            <span className="font-semibold text-foreground">
+              دقیقاً مطابق کتاب درسی ایران
+            </span>{" "}
+            حل کن و آماده کنکور سراسری بشو.
           </motion.p>
 
           {/* CTA buttons */}
-          <motion.div variants={fadeUp} className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto justify-center">
+          <motion.div
+            variants={fadeUp}
+            className="flex w-full flex-col justify-center gap-3 sm:w-auto sm:flex-row"
+          >
             <motion.a
               href="/register"
               whileHover={{ scale: 1.03, y: -2 }}
               whileTap={{ scale: 0.97 }}
-              className="inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl bg-brand text-brand-foreground font-bold text-base shadow-lg shadow-brand/30 hover:bg-brand/90 transition-colors"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-8 py-3.5 text-base font-bold text-brand-foreground shadow-lg shadow-brand/30 transition-colors hover:bg-brand/90"
             >
               همین الان شروع کن — رایگانه!
             </motion.a>
             <motion.a
               href="#features"
               whileHover={{ scale: 1.02, y: -1 }}
-              className="inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl border border-border font-medium text-base hover:bg-muted/50 transition-colors"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-8 py-3.5 text-base font-medium transition-colors hover:bg-muted/50"
             >
               <span>ببین چطور کار می‌کنه</span>
               <span>▶</span>
             </motion.a>
           </motion.div>
-
-          {/* Social proof */}
-          <motion.p variants={fadeUp} className="text-sm text-muted-foreground">
-            بیش از <span className="font-bold text-foreground">۵,۰۰۰</span> دانش‌آموز در حال استفاده
-          </motion.p>
         </motion.div>
       </div>
 
@@ -90,15 +107,42 @@ export default function Hero() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "-80px" }}
         transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-        className="relative max-w-5xl mx-auto w-full mt-24"
+        className="relative mx-auto mt-32 w-full max-w-5xl"
         id="features"
       >
-        <div className="text-center mb-10">
-          <h2 className="text-2xl md:text-3xl font-black">چرا StudyGPT؟</h2>
-          <p className="text-muted-foreground mt-2 text-sm md:text-base">
-            مقایسه پاسخ‌های هوش مصنوعی عمومی در برابر StudyGPT تخصصی
+        {/* Section glow */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-24 left-1/2 h-[280px] w-[500px] -translate-x-1/2 rounded-full opacity-[0.08] blur-3xl"
+          style={{
+            background:
+              "radial-gradient(ellipse, oklch(0.70 0.16 185), oklch(0.62 0.22 255), transparent 70%)",
+          }}
+        />
+
+        {/* Header */}
+        <div className="relative mb-12 text-center">
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-teal-500/25 bg-teal-500/8 px-4 py-1.5 text-xs font-semibold tracking-wide text-teal-400">
+            <span className="text-sm">🧬</span>
+            زیست‌شناسی کنکور تجربی
+          </div>
+          <h2 className="text-3xl font-black tracking-tight md:text-4xl">
+            یه سوال، دو جواب —{" "}
+            <span className="relative inline-block">
+              <span className="relative z-10 text-brand">خودت قضاوت کن</span>
+              <span
+                aria-hidden
+                className="absolute inset-x-0 bottom-0.5 -z-0 h-3 rounded-sm opacity-20"
+                style={{ background: "oklch(0.62 0.22 255)" }}
+              />
+            </span>
+          </h2>
+          <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground md:text-base">
+            همان سوال زیست، یک‌بار با هوش مصنوعی عمومی، یک‌بار با StudyGPT —{" "}
+            <span className="font-semibold text-foreground">تفاوت رو ببین</span>
           </p>
         </div>
+
         <ComparisonTable />
       </motion.div>
     </section>

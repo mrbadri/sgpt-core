@@ -7,7 +7,6 @@ import PricingCard from "./PricingCard"
 
 export default function Pricing() {
   const [period, setPeriod] = useState<BillingPeriod>("monthly")
-  const [termsAccepted, setTermsAccepted] = useState(false)
 
   return (
     <section id="pricing" className="py-24 px-4">
@@ -81,54 +80,10 @@ export default function Pricing() {
               key={tier.id}
               tier={tier}
               period={period}
-              termsAccepted={termsAccepted}
             />
           ))}
         </div>
 
-        {/* Terms checkbox */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true }}
-          transition={{ delay: 0.3 }}
-          className="mt-8 flex justify-center"
-        >
-          <label className="flex items-start gap-3 max-w-md cursor-pointer group">
-            <div className="relative mt-0.5 shrink-0">
-              <input
-                type="checkbox"
-                checked={termsAccepted}
-                onChange={(e) => setTermsAccepted(e.target.checked)}
-                className="peer sr-only"
-              />
-              <div className="w-5 h-5 rounded border-2 border-border peer-checked:bg-brand peer-checked:border-brand transition-colors flex items-center justify-center">
-                {termsAccepted && (
-                  <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none">
-                    <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
-              </div>
-            </div>
-            <span className="text-sm text-muted-foreground leading-relaxed">
-              با{" "}
-              <a href="/terms" className="text-brand hover:underline font-medium">
-                قوانین و مقررات استفاده
-              </a>{" "}
-              و{" "}
-              <a href="/refund" className="text-brand hover:underline font-medium">
-                سیاست استرداد وجه
-              </a>{" "}
-              مطالعه کرده و موافقم.
-            </span>
-          </label>
-        </motion.div>
-
-        {!termsAccepted && (
-          <p className="text-center text-xs text-muted-foreground mt-3">
-            برای فعال شدن دکمه خرید، تیک موافقت با قوانین را بزنید.
-          </p>
-        )}
       </div>
     </section>
   )

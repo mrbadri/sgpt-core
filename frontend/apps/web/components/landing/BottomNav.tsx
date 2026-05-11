@@ -15,13 +15,15 @@ export default function BottomNav() {
 
   return (
     <nav
-      className="fixed bottom-0 inset-x-0 md:hidden z-40 glass border-t border-border"
+      className="fixed inset-x-0 bottom-0 z-40 border-t glass border-border md:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <div className="flex items-stretch justify-around h-16">
+      <div className="flex h-16 items-stretch justify-around">
         {navItems.map((item) => {
           const Icon = item.icon
-          const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))
+          const isActive =
+            pathname === item.href ||
+            (item.href !== "/" && pathname.startsWith(item.href))
           return (
             <motion.a
               key={item.href}
@@ -32,7 +34,7 @@ export default function BottomNav() {
                 isActive ? "text-brand" : "text-muted-foreground"
               }`}
             >
-              <Icon className="w-5 h-5" />
+              <Icon className="h-5 w-5" />
               <span>{item.label}</span>
             </motion.a>
           )

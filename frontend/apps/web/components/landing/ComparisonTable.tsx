@@ -1,63 +1,115 @@
+"use client"
+
+import { motion } from "framer-motion"
 import { comparisonData } from "@/lib/landing-data"
 
-const tagLabels: Record<string, string> = {
-  math: "ریاضی",
-  physics: "فیزیک",
-  chemistry: "شیمی",
-  english: "زبان",
-}
-
-const tagColors: Record<string, string> = {
-  math: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-  physics: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
-  chemistry: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
-  english: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+const fadeUp = {
+  hidden: { opacity: 0, y: 16 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: i * 0.08, duration: 0.5, ease: [0.22, 1, 0.36, 1] },
+  }),
 }
 
 export default function ComparisonTable() {
+  const row = comparisonData[0]
+
   return (
     <div className="w-full">
-      {/* Column headers */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <div className="flex items-center gap-2 justify-center px-4 py-2 rounded-xl bg-danger/10 text-danger font-bold text-sm">
-          <span>✗</span>
-          <span>هوش مصنوعی عمومی (ChatGPT، Gemini)</span>
-        </div>
-        <div className="flex items-center gap-2 justify-center px-4 py-2 rounded-xl bg-success/10 text-success font-bold text-sm">
-          <span>✓</span>
-          <span>StudyGPT — تخصصی کنکور ایران</span>
+      {/* Prompt chip */}
+      <div className="flex justify-center mb-6">
+        <div className="inline-flex items-center gap-2.5 rounded-2xl border border-border bg-muted/40 px-5 py-2.5 text-sm text-muted-foreground backdrop-blur-sm">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-teal-500/15 text-teal-400 text-xs font-bold">🧬</span>
+          <span className="font-medium text-foreground">{row.subject}</span>
+          <span className="h-3.5 w-px bg-border" />
+          <span className="font-mono text-xs">{row.prompt}</span>
         </div>
       </div>
 
-      <div className="space-y-3">
-        {comparisonData.map((row, i) => (
-          <div key={i} className="grid grid-cols-1 md:grid-cols-2 gap-0 md:gap-4 rounded-2xl overflow-hidden border border-border">
-            {/* Subject badge — spans both on mobile */}
-            <div className="md:hidden flex items-center gap-2 px-4 pt-3 pb-1">
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${tagColors[row.tag]}`}>
-                {tagLabels[row.tag]}
-              </span>
-              <span className="text-sm font-semibold">{row.subject}</span>
-            </div>
+      {/* Two-panel card */}
+      <div className="relative grid grid-cols-1 md:grid-cols-2 rounded-3xl border border-border bg-card overflow-hidden shadow-xl shadow-black/5">
 
-            {/* General AI cell */}
-            <div className="px-4 py-3 bg-danger/5 border-b md:border-b-0 md:border-e border-border">
-              <div className="hidden md:flex items-center gap-2 mb-1">
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${tagColors[row.tag]}`}>
-                  {tagLabels[row.tag]}
-                </span>
-                <span className="text-xs font-semibold text-foreground/70">{row.subject}</span>
-              </div>
-              <p className="text-sm text-danger/90 leading-relaxed">{row.generalAI}</p>
-            </div>
+        {/* Divider line — desktop only */}
+        <div className="absolute inset-y-0 left-1/2 hidden md:block w-px bg-border" />
 
-            {/* StudyGPT cell */}
-            <div className="px-4 py-3 bg-success/5">
-              <div className="hidden md:block mb-1 h-5" />
-              <p className="text-sm text-success/90 leading-relaxed font-medium">{row.studyGPT}</p>
-            </div>
+        {/* General AI panel */}
+        <motion.div
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          custom={0}
+          className="relative flex flex-col gap-4 p-7 border-b md:border-b-0 border-border"
+        >
+          {/* Subtle red tint blob */}
+          <div
+            aria-hidden
+            className="absolute top-0 start-0 w-48 h-48 rounded-full blur-3xl opacity-[0.06] pointer-events-none"
+            style={{ background: "oklch(0.65 0.22 27)" }}
+          />
+
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-red-500/10 text-red-400 text-sm font-black">✗</span>
+            <span className="text-sm font-bold text-foreground/80">{row.generalAI.title}</span>
           </div>
-        ))}
+
+          <ul className="space-y-2.5">
+            {row.generalAI.points.map((point, i) => (
+              <motion.li
+                key={i}
+                variants={fadeUp}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                custom={i}
+                className="flex items-start gap-2.5"
+              >
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-red-400 text-[10px]">✗</span>
+                <span className="text-sm leading-relaxed text-foreground/60">{point}</span>
+              </motion.li>
+            ))}
+          </ul>
+        </motion.div>
+
+        {/* StudyGPT panel */}
+        <motion.div
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          custom={1}
+          className="relative flex flex-col gap-4 p-7"
+        >
+          {/* Brand glow blob */}
+          <div
+            aria-hidden
+            className="absolute top-0 end-0 w-48 h-48 rounded-full blur-3xl opacity-[0.08] pointer-events-none"
+            style={{ background: "oklch(0.72 0.18 145)" }}
+          />
+
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400 text-sm font-black">✓</span>
+            <span className="text-sm font-bold text-foreground">{row.studyGPT.title}</span>
+          </div>
+
+          <ul className="space-y-2.5">
+            {row.studyGPT.points.map((point, i) => (
+              <motion.li
+                key={i}
+                variants={fadeUp}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                custom={i}
+                className="flex items-start gap-2.5"
+              >
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400 text-[10px]">✓</span>
+                <span className="text-sm leading-relaxed text-foreground/90 font-medium">{point}</span>
+              </motion.li>
+            ))}
+          </ul>
+        </motion.div>
       </div>
     </div>
   )

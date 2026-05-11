@@ -8,10 +8,9 @@ import { formatToman } from "@/lib/landing-data"
 type Props = {
   tier: PricingTier
   period: BillingPeriod
-  termsAccepted: boolean
 }
 
-export default function PricingCard({ tier, period, termsAccepted }: Props) {
+export default function PricingCard({ tier, period }: Props) {
   const price = period === "monthly" ? tier.price.monthly : tier.price.quarterly
   const isHighlighted = tier.highlighted
 
@@ -68,8 +67,7 @@ export default function PricingCard({ tier, period, termsAccepted }: Props) {
       </ul>
 
       <button
-        disabled={!termsAccepted && price > 0}
-        className={`w-full py-3 rounded-xl font-bold text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
+        className={`w-full py-3 rounded-xl font-bold text-sm transition-colors ${
           isHighlighted
             ? "bg-white text-brand hover:bg-brand-foreground/90"
             : "bg-brand text-brand-foreground hover:bg-brand/90"
@@ -87,8 +85,7 @@ export default function PricingCard({ tier, period, termsAccepted }: Props) {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1], delay: 0.1 }}
-        whileHover={{ scale: 1.02, y: -4 }}
-        className="relative"
+          className="relative"
       >
         {cardContent}
       </motion.div>

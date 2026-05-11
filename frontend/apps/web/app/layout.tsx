@@ -1,15 +1,15 @@
 import type { Metadata } from "next"
-import { Vazirmatn } from "next/font/google"
+import localFont from "next/font/local"
 
 import "@workspace/ui/globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { cn } from "@workspace/ui/lib/utils"
 
-const vazir = Vazirmatn({
-  subsets: ["arabic"],
+const yekan = localFont({
+  src: "./fonts/yekan.woff2",
   variable: "--font-persian",
-  weight: ["400", "500", "700", "900"],
   display: "swap",
+  preload: true,
 })
 
 export const metadata: Metadata = {
@@ -40,7 +40,7 @@ export default function RootLayout({
       lang="fa"
       dir="rtl"
       suppressHydrationWarning
-      className={cn("font-sans antialiased", vazir.variable)}
+      className={cn(yekan.variable)}
     >
       <body suppressHydrationWarning>
         <ThemeProvider>{children}</ThemeProvider>

@@ -1,34 +1,32 @@
 export type ComparisonRow = {
   subject: string
-  generalAI: string
-  studyGPT: string
-  tag: "math" | "physics" | "chemistry" | "english"
+  prompt: string
+  generalAI: { title: string; points: string[] }
+  studyGPT: { title: string; points: string[] }
 }
 
 export const comparisonData: ComparisonRow[] = [
   {
-    subject: "مشتق توابع مثلثاتی",
-    generalAI: "روش بین‌المللی — نمایش متفاوت با کتاب ریاضی دوازدهم",
-    studyGPT: "دقیقاً مطابق کتاب ریاضی ۳ دوازدهم تجربی و ریاضی",
-    tag: "math",
-  },
-  {
-    subject: "قوانین نیوتن و دینامیک",
-    generalAI: "علامت‌گذاری SI استاندارد بین‌المللی — گیج‌کننده در کنکور",
-    studyGPT: "فرمت و علامت‌گذاری دقیق کتاب فیزیک کنکور سراسری",
-    tag: "physics",
-  },
-  {
-    subject: "تعادل شیمیایی و ثابت K",
-    generalAI: "پاسخ درست ولی نمایش متفاوت از الگوی سوالات کنکور",
-    studyGPT: "فرمت دقیق سوالات کنکور سراسری + نکات آزمونی",
-    tag: "chemistry",
-  },
-  {
-    subject: "گرامر زبان انگلیسی",
-    generalAI: "توضیح به زبان انگلیسی یا اصطلاحات نامأنوس",
-    studyGPT: "توضیح کامل فارسی + نکات کلیدی کنکور زبان",
-    tag: "english",
+    subject: "تقسیم سلولی — میتوز و میوز",
+    prompt: "مراحل میتوز رو توضیح بده",
+    generalAI: {
+      title: "پاسخ هوش مصنوعی عمومی",
+      points: [
+        "توضیح آکادمیک انگلیسی‌محور",
+        "ترتیب مراحل متفاوت با کتاب",
+        "اصطلاحات نامأنوس با کنکور",
+        "بدون اشاره به نکات آزمونی",
+      ],
+    },
+    studyGPT: {
+      title: "پاسخ StudyGPT",
+      points: [
+        "مطابق کتاب زیست‌شناسی ۱ و ۲ دهم و یازدهم",
+        "مراحل دقیق: پروفاز، متافاز، آنافاز، تلوفاز",
+        "نکات پرتکرار کنکور تجربی هایلایت‌شده",
+        "مقایسه میتوز و میوز با جدول کنکوری",
+      ],
+    },
   },
 ]
 
