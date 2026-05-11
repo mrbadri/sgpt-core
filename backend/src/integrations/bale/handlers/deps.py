@@ -18,3 +18,5 @@ class BaleHandlerDeps:
     logger: logging.Logger
     agent_bridge: BaleAgentBridge
     reply_long_text: Callable[[types.Message, str], None]
+    payment_provider_token: str = ""
+    api_url: str = "https://tapi.bale.ai/bot{0}/{1}"

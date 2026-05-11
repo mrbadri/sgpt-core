@@ -27,10 +27,15 @@ def _bale_request_sender(method, url, params=None, files=None, timeout=None, pro
     tapi.bale.ai and causes 414 responses.  Moving the payload to the POST body
     fixes the issue without changing chunk sizes.
     """
-    if method.lower() == "post" and params and not files:
-        return _requests.request(
-            method, url, data=params, timeout=timeout, proxies=proxies
-        )
+    if method.lower() == "post":
+        if files:
+            return _requests.request(
+                method, url, data=params, files=files, timeout=timeout, proxies=proxies
+            )
+        if params:
+            return _requests.request(
+                method, url, data=params, timeout=timeout, proxies=proxies
+            )
     return _requests.request(
         method, url, params=params, files=files, timeout=timeout, proxies=proxies
     )
@@ -62,6 +67,8 @@ class BotService:
             logger=logger,
             agent_bridge=self._agent_bridge,
             reply_long_text=lambda m, t: reply_long_text(self.bot, m, t),
+            payment_provider_token=settings.bale_payment_provider_token,
+            api_url=self.api_url,
         )
         register_handlers(deps)
 
