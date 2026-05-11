@@ -1,15 +1,34 @@
-import { Geist, Geist_Mono } from "next/font/google"
+import type { Metadata } from "next"
+import { Vazirmatn } from "next/font/google"
 
 import "@workspace/ui/globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
-import { cn } from "@workspace/ui/lib/utils";
+import { cn } from "@workspace/ui/lib/utils"
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'})
-
-const fontMono = Geist_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
+const vazir = Vazirmatn({
+  subsets: ["arabic"],
+  variable: "--font-persian",
+  weight: ["400", "500", "700", "900"],
+  display: "swap",
 })
+
+export const metadata: Metadata = {
+  title: {
+    default: "StudyGPT — هوش مصنوعی آموزشی برای کنکور و دبیرستان",
+    template: "%s | StudyGPT",
+  },
+  description:
+    "با StudyGPT سوالات کنکور، ریاضی، فیزیک و شیمی را به‌صورت هوشمند و دقیقاً مطابق کتاب‌های درسی ایران حل کن. هوش مصنوعی تخصصی برای دانش‌آموزان ایرانی.",
+  metadataBase: new URL("https://studygpt.ir"),
+  openGraph: {
+    locale: "fa_IR",
+    type: "website",
+    siteName: "StudyGPT",
+  },
+  alternates: {
+    canonical: "/",
+  },
+}
 
 export default function RootLayout({
   children,
@@ -18,11 +37,12 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="fa"
+      dir="rtl"
       suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", geist.variable)}
+      className={cn("font-sans antialiased", vazir.variable)}
     >
-      <body>
+      <body suppressHydrationWarning>
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
