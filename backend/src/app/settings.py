@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     bale_api_url: str = "https://tapi.bale.ai/bot{0}/{1}"
     bale_bot_phone: Optional[str] = None
     bale_payment_provider_token: str = ""
+    bale_required_channels: list[str] = []  # e.g. ["@mychannel"] — set via BALE_REQUIRED_CHANNELS=@a,@b
 
     # Admin Authentication
     admin_secret_key: Optional[str] = None
