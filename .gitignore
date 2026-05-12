@@ -51,6 +51,9 @@ ingestion/data/
 .DS_Store
 Thumbs.db
 
+# Claude Code worktrees (prevent accidental gitlink tracking)
+**/.claude/worktrees/
+
 # Logs & scratch
 *.log
 tmp/
