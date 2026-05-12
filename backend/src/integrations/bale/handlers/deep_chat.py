@@ -11,7 +11,7 @@ from app.agent.sample import StudentResponse
 from app.db.session import get_db_session
 from app.services import bale_user_service
 from integrations.bale.formatting import markdown_to_bale_markdown, split_reply_text
-from integrations.bale.handlers.deps import BaleHandlerDeps
+from integrations.bale.handlers.deps import BaleHandlerDeps, log_bale_incoming
 
 _THINKING_STATUS_LINES: tuple[str, ...] = (
     "گرفتم! ⚡️ یه چند لحظه بهم زمان بده...",
@@ -142,7 +142,14 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
     @bot.message_handler(content_types=["text"], func=_plain_text_predicate)
     def handle_deep_chat(message: types.Message) -> None:
-        print("deep chat command received =======================================")
+        uid = message.from_user.id if message.from_user else None
+        raw = message.text.strip() if message.text else ""
+        log_bale_incoming(
+            "deep_chat text",
+            chat_id=message.chat.id,
+            user_id=uid,
+            prompt_preview=raw[:120] if raw else "",
+        )
         try:
             if not message.from_user:
                 bot.reply_to(
@@ -237,7 +244,19 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
     @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("nq:"))
     def handle_next_question_callback(call: types.CallbackQuery) -> None:
+        uid = call.from_user.id if call.from_user else None
+        cid = call.message.chat.id if call.message else None
+        log_bale_incoming(
+            "callback next_question",
+            chat_id=cid,
+            user_id=uid,
+            callback_data=call.data,
+        )
         try:
+            if not call.data:
+                bot.answer_callback_query(call.id)
+                return
+
             parts = call.data.split(":", 2)
             if len(parts) != 3:
                 bot.answer_callback_query(call.id)
@@ -255,9 +274,10 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
             question = questions[idx]
             bot.answer_callback_query(call.id, "⏳ دارم جواب می‌دم...")
 
-            if not call.message:
+            if not call.message or not isinstance(call.message, types.Message):
                 return
 
+            origin_message: types.Message = call.message
             status_msg: list[types.Message | None] = [None]
 
             def _edit_status(text: str) -> None:
@@ -272,7 +292,7 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
             def on_thinking() -> None:
                 try:
                     status_msg[0] = bot.send_message(
-                        call.message.chat.id,
+                        origin_message.chat.id,
                         random.choice(_THINKING_STATUS_LINES),
                     )
                 except Exception:
@@ -301,12 +321,12 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                     except Exception:
                         pass
                 bot.send_message(
-                    call.message.chat.id,
+                    origin_message.chat.id,
                     "⚡ انرژی سیستم یه لحظه افت کرد! دوباره بپرس تا با قدرت کامل جواب بدم. این دفعه حله! 🚀",
                 )
                 return
 
-            _send_answer(bale_tid, answer, call.message, status_msg[0])
+            _send_answer(bale_tid, answer, origin_message, status_msg[0])
 
         except Exception as e:
             logger.error(f"Error in handle_next_question_callback: {e}", exc_info=True)

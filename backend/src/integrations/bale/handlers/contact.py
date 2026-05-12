@@ -6,7 +6,7 @@ from telebot import types
 
 from app.db.session import get_db_session
 from app.services import bale_user_service
-from integrations.bale.handlers.deps import BaleHandlerDeps
+from integrations.bale.handlers.deps import BaleHandlerDeps, log_bale_incoming
 
 
 def register_contact_handler(deps: BaleHandlerDeps) -> None:
@@ -22,7 +22,18 @@ def register_contact_handler(deps: BaleHandlerDeps) -> None:
                 bot.reply_to(message, "اطلاعات تماسی دریافت نشد. لطفاً دوباره تلاش کنید.")
                 return
 
-            phone_number = contact.phone_number or ""
+            uid = message.from_user.id if message.from_user else None
+            pn = contact.phone_number or ""
+            phone_hint = f"***{pn[-4:]}" if len(pn) >= 4 else "(short)"
+            log_bale_incoming(
+                "message contact",
+                chat_id=message.chat.id,
+                user_id=uid,
+                phone_hint=phone_hint,
+                message_id=message.message_id,
+            )
+
+            phone_number = pn
             mobile = bale_user_service.normalize_mobile_from_contact(phone_number)
             if mobile is None:
                 bot.reply_to(message, "شماره موبایل نامعتبر است. لطفاً دوباره تلاش کنید.")

@@ -9,7 +9,7 @@ from telebot import types
 
 from app.db.session import get_db_session
 from app.services import payment_service
-from integrations.bale.handlers.deps import BaleHandlerDeps
+from integrations.bale.handlers.deps import BaleHandlerDeps, log_bale_incoming
 
 # ---------------------------------------------------------------------------
 # Subscription plans — edit here to change tiers
@@ -80,6 +80,13 @@ def register_payment_handler(deps: BaleHandlerDeps) -> None:
     # ------------------------------------------------------------------ /pay
     @bot.message_handler(commands=["pay"])
     def handle_pay(message: types.Message) -> None:
+        uid = message.from_user.id if message.from_user else None
+        log_bale_incoming(
+            "command /pay",
+            chat_id=message.chat.id,
+            user_id=uid,
+            text=getattr(message, "text", None),
+        )
         try:
             bot.send_message(
                 message.chat.id,
@@ -93,6 +100,14 @@ def register_payment_handler(deps: BaleHandlerDeps) -> None:
     # -------------------------------------------------------- plan selection
     @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("pay_plan:"))
     def handle_plan_selection(call: types.CallbackQuery) -> None:
+        uid = call.from_user.id if call.from_user else None
+        cid = call.message.chat.id if call.message else None
+        log_bale_incoming(
+            "callback pay_plan",
+            chat_id=cid,
+            user_id=uid,
+            callback_data=call.data,
+        )
         try:
             if not call.data:
                 bot.answer_callback_query(call.id)
@@ -133,6 +148,14 @@ def register_payment_handler(deps: BaleHandlerDeps) -> None:
     # -------------------------------------------------- pre-checkout query
     @bot.pre_checkout_query_handler(func=lambda q: True)
     def handle_pre_checkout(query: types.PreCheckoutQuery) -> None:
+        uid = query.from_user.id if query.from_user else None
+        log_bale_incoming(
+            "pre_checkout_query",
+            query_id=query.id,
+            user_id=uid,
+            currency=query.currency,
+            total_amount=query.total_amount,
+        )
         try:
             bot.answer_pre_checkout_query(query.id, ok=True)
         except Exception as e:
@@ -147,6 +170,15 @@ def register_payment_handler(deps: BaleHandlerDeps) -> None:
     # -------------------------------------------------- successful payment
     @bot.message_handler(content_types=["successful_payment"])
     def handle_successful_payment(message: types.Message) -> None:
+        uid = message.from_user.id if message.from_user else None
+        sp0 = message.successful_payment
+        log_bale_incoming(
+            "message successful_payment",
+            chat_id=message.chat.id,
+            user_id=uid,
+            total_amount=getattr(sp0, "total_amount", None),
+            currency=getattr(sp0, "currency", None),
+        )
         try:
             sp = message.successful_payment
             if sp is None:
