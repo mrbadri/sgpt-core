@@ -61,7 +61,7 @@ class IntegerIDBase(SQLModel):
     کلاس پایه برای مدل‌هایی که از Integer به عنوان primary key استفاده می‌کنند.
     """
 
-    id: int = Field(
+    id: int | None = Field(
         default=None,
         primary_key=True,
         index=True,
