@@ -5,7 +5,7 @@ from __future__ import annotations
 from telebot import types
 
 from app.db.session import get_db_session
-from app.services import bale_user_service
+from app.services import bale_user_service, subscription_service
 from integrations.bale.handlers.deps import BaleHandlerDeps, log_bale_incoming
 from integrations.bale.handlers.welcome import run_welcome_step
 
@@ -56,6 +56,8 @@ def register_contact_handler(deps: BaleHandlerDeps) -> None:
                     logger.info(
                         f"Contact {kind} | user_id={bale_tid} mobile={mobile} db_id={user.id}"
                     )
+                    # Ensure a free subscription row exists for every new (and re-linked) user
+                    subscription_service.get_or_create_free(db, int(bale_tid))
                 except Exception as db_err:
                     db.rollback()
                     db_error = "متأسفانه در ثبت اطلاعات خطایی رخ داد. لطفاً دوباره تلاش کنید."

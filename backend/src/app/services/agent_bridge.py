@@ -20,7 +20,11 @@ from app.agent.prompts import (
     PERSONALITY_WITH_PHOTO,
 )
 from app.agent.format_response import AgentResponse
+from app.plans import INPUT_COST_PER_1M, OUTPUT_COST_PER_1M
 from app.settings import settings
+
+# Return type alias: (answer, cost_usd)
+AgentResult = tuple[Union[AgentResponse, str], float]
 
 
 def _assistant_message_text(content: Any) -> str:
@@ -79,8 +83,8 @@ class BaleAgentBridge:
         """Record an exam answer silently — injected into the next agent call."""
         _pending_exam_context.setdefault(bale_tid, []).append(entry)
 
-    def invoke_reply(self, bale_tid: int, text: str) -> Union[AgentResponse, str]:
-        """Run the agent and return the structured response or last assistant text."""
+    def invoke_reply(self, bale_tid: int, text: str) -> AgentResult:
+        """Run the agent and return (answer, cost_usd)."""
         return self.invoke_reply_with_status(bale_tid, text)
 
     def invoke_reply_with_status(
@@ -90,7 +94,7 @@ class BaleAgentBridge:
         on_thinking: Callable[[], None] | None = None,
         on_searching: Callable[[], None] | None = None,
         on_got_it: Callable[[], None] | None = None,
-    ) -> Union[AgentResponse, str]:
+    ) -> AgentResult:
         """Run the agent via astream_events and fire status callbacks at key moments."""
         agent = self._get_agent()
         cfg: RunnableConfig = {"configurable": {"thread_id": f"bale-{bale_tid}"}}
@@ -116,12 +120,14 @@ class BaleAgentBridge:
         on_thinking: Callable[[], None] | None,
         on_searching: Callable[[], None] | None,
         on_got_it: Callable[[], None] | None,
-    ) -> Union[AgentResponse, str]:
+    ) -> AgentResult:
         thinking_fired = False
         searching_fired = False
         got_it_fired = False
         final_structured: AgentResponse | None = None
         final_content: str = ""
+        input_tokens: int = 0
+        output_tokens: int = 0
 
         async for event in agent.astream_events(
             {"messages": [{"role": "user", "content": user_content}]},
@@ -148,6 +154,22 @@ class BaleAgentBridge:
                     if on_got_it:
                         on_got_it()
 
+            elif kind == "on_chat_model_end":
+                raw_output = event.get("data", {}).get("output")
+                meta: Any = None
+                if raw_output is not None:
+                    if hasattr(raw_output, "usage_metadata"):
+                        meta = raw_output.usage_metadata  # type: ignore[union-attr]
+                    elif isinstance(raw_output, dict):
+                        meta = raw_output.get("usage_metadata")
+                if meta is not None:
+                    if isinstance(meta, dict):
+                        input_tokens  += meta.get("input_tokens",  0) or 0
+                        output_tokens += meta.get("output_tokens", 0) or 0
+                    else:
+                        input_tokens  += getattr(meta, "input_tokens",  0) or 0
+                        output_tokens += getattr(meta, "output_tokens", 0) or 0
+
             elif kind == "on_chain_end":
                 output = event.get("data", {}).get("output")
                 if isinstance(output, dict):
@@ -173,27 +195,32 @@ class BaleAgentBridge:
                                 if text_candidate:
                                     final_content = text_candidate
 
+        cost_usd = (
+            (input_tokens / 1_000_000) * INPUT_COST_PER_1M
+            + (output_tokens / 1_000_000) * OUTPUT_COST_PER_1M
+        )
+
         if final_structured is not None:
-            return final_structured
+            return final_structured, cost_usd
 
         # Agent sometimes returns structured data as a plain JSON string — try to parse it.
         if final_content:
             try:
                 data = json.loads(final_content)
                 if isinstance(data, dict) and "response_type" in data:
-                    return AgentResponse(**data)
+                    return AgentResponse(**data), cost_usd
             except Exception:
                 pass
 
-        return final_content
+        return final_content, cost_usd
 
     def invoke_welcome(
         self,
         bale_tid: int,
         first_name: str,
         profile_url: str | None,
-    ) -> Union[AgentResponse, str]:
-        """Run the deep agent for onboarding. Returns full AgentResponse (or fallback str)."""
+    ) -> AgentResult:
+        """Run the deep agent for onboarding. Returns (AgentResponse | str, cost_usd)."""
         agent = self._get_agent()
         cfg: RunnableConfig = {"configurable": {"thread_id": f"bale-welcome-{bale_tid}"}}
 
@@ -211,7 +238,7 @@ class BaleAgentBridge:
         else:
             user_content = prompt
 
-        async def _run() -> Union[AgentResponse, str]:
+        async def _run() -> AgentResult:
             return await self._stream_agent(agent, cfg, user_content, None, None, None)
 
         return asyncio.run(_run())

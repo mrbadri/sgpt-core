@@ -8,39 +8,22 @@ import requests as _requests
 from telebot import types
 
 from app.db.session import get_db_session
-from app.services import payment_service
+from app.plans import PLAN_CONFIG, PLAN_PRICES
+from app.services import payment_service, subscription_service
 from integrations.bale.handlers.deps import BaleHandlerDeps, log_bale_incoming
 
-# ---------------------------------------------------------------------------
-# Subscription plans — edit here to change tiers
-# ---------------------------------------------------------------------------
-PLANS: dict[str, dict] = {
-    "bronze": {
-        "label": "🥉 برنز — ۱ ماه",
-        "title": "اشتراک برنز",
-        "description": "دسترسی یک‌ماهه به دستیار هوشمند",
-        "amount": 50_000,  # IRR (ریال)
-    },
-    "silver": {
-        "label": "🥈 نقره — ۳ ماه",
-        "title": "اشتراک نقره",
-        "description": "دسترسی سه‌ماهه به دستیار هوشمند",
-        "amount": 130_000,
-    },
-    "gold": {
-        "label": "🥇 طلا — ۶ ماه",
-        "title": "اشتراک طلا",
-        "description": "دسترسی شش‌ماهه به دستیار هوشمند",
-        "amount": 240_000,
-    },
-}
+_DURATION_LABEL = {1: "۱ ماهه", 3: "۳ ماهه"}
 
 
 def _plan_keyboard() -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
-    for key, plan in PLANS.items():
-        label = f"{plan['label']}  —  {plan['amount']:,} ریال"
-        markup.add(types.InlineKeyboardButton(label, callback_data=f"pay_plan:{key}"))
+    for (plan_key, months), price in PLAN_PRICES.items():
+        plan_label = PLAN_CONFIG[plan_key]["label"]
+        dur_label = _DURATION_LABEL.get(months, f"{months} ماهه")
+        btn_label = f"{plan_label} — {dur_label}  |  {price:,} ریال"
+        markup.add(types.InlineKeyboardButton(
+            btn_label, callback_data=f"pay_plan:{plan_key}:{months}"
+        ))
     return markup
 
 
@@ -119,9 +102,15 @@ def register_payment_handler(deps: BaleHandlerDeps) -> None:
             if not call.data:
                 bot.answer_callback_query(call.id)
                 return
-            plan_key = call.data.split(":", 1)[1]
-            plan = PLANS.get(plan_key)
-            if plan is None:
+            # callback_data format: "pay_plan:basic:1"
+            parts = call.data.split(":")
+            if len(parts) != 3:
+                bot.answer_callback_query(call.id, "پلن نامعتبر است!")
+                return
+            plan_key = parts[1]
+            duration_months = int(parts[2])
+            amount = PLAN_PRICES.get((plan_key, duration_months))
+            if amount is None or plan_key not in PLAN_CONFIG:
                 bot.answer_callback_query(call.id, "پلن نامعتبر است!")
                 return
 
@@ -132,18 +121,20 @@ def register_payment_handler(deps: BaleHandlerDeps) -> None:
 
             bot.answer_callback_query(call.id, "در حال ارسال فاکتور...")
 
-            invoice_payload = json.dumps({"plan": plan_key, "uid": bale_user_id})
+            plan_label = PLAN_CONFIG[plan_key]["label"]
+            dur_label = _DURATION_LABEL.get(duration_months, f"{duration_months} ماهه")
+            invoice_payload = json.dumps({"plan": plan_key, "months": duration_months, "uid": bale_user_id})
             chat_id = call.message.chat.id if call.message else bale_user_id
 
             _send_invoice_direct(
                 bot_token=bot.token,
                 api_url_template=api_url,
                 chat_id=chat_id,
-                title=plan["title"],
-                description=plan["description"],
+                title=f"اشتراک {plan_label} — {dur_label}",
+                description=f"دسترسی {dur_label} به دستیار هوشمند SGPT",
                 payload=invoice_payload,
                 provider_token=provider_token,
-                amount=plan["amount"],
+                amount=amount,
             )
         except Exception as e:
             logger.error(f"Error sending invoice: {e}", exc_info=True)
@@ -197,9 +188,11 @@ def register_payment_handler(deps: BaleHandlerDeps) -> None:
 
             try:
                 payload = json.loads(sp.invoice_payload)
-                plan_key = payload.get("plan", "unknown")
+                plan_key = payload.get("plan", "basic")
+                duration_months = int(payload.get("months", 1))
             except Exception:
-                plan_key = "unknown"
+                plan_key = "basic"
+                duration_months = 1
 
             try:
                 db = get_db_session()
@@ -213,23 +206,24 @@ def register_payment_handler(deps: BaleHandlerDeps) -> None:
                         invoice_payload=sp.invoice_payload,
                         provider_payment_charge_id=sp.provider_payment_charge_id,
                     )
+                    subscription_service.activate_plan(db, bale_user_id, plan_key, duration_months, paid_irr=sp.total_amount)
                     logger.info(
-                        f"Payment recorded | user={bale_user_id} plan={plan_key} "
-                        f"amount={sp.total_amount} charge_id={sp.provider_payment_charge_id}"
+                        f"Payment + plan activated | user={bale_user_id} plan={plan_key} "
+                        f"months={duration_months} amount={sp.total_amount}"
                     )
                 except Exception as db_err:
                     db.rollback()
-                    logger.error(f"Failed to save payment: {db_err}", exc_info=True)
+                    logger.error(f"Failed to save payment/activate plan: {db_err}", exc_info=True)
                 finally:
                     db.close()
             except Exception as session_err:
                 logger.error(f"DB session error on payment: {session_err}", exc_info=True)
 
-            plan = PLANS.get(plan_key, {})
-            plan_label = plan.get("label", plan_key)
+            plan_label = PLAN_CONFIG.get(plan_key, {}).get("label", plan_key)
+            dur_label = _DURATION_LABEL.get(duration_months, f"{duration_months} ماهه")
             success_text = (
                 f"✅ *پرداخت موفق!*\n\n"
-                f"پلن {plan_label} با موفقیت فعال شد.\n"
+                f"پلن *{plan_label}* — {dur_label} با موفقیت فعال شد! 🎉\n"
                 f"مبلغ: {sp.total_amount:,} {sp.currency}\n"
                 f"کد پیگیری: `{sp.provider_payment_charge_id}`"
             )

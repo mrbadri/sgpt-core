@@ -54,7 +54,7 @@ def run_welcome_step(
         except Exception:
             pass
 
-        result = bridge.invoke_welcome(uid, first_name, profile_url)
+        result, _welcome_cost = bridge.invoke_welcome(uid, first_name, profile_url)
 
         if loading_msg is not None:
             try:
@@ -86,7 +86,7 @@ def run_welcome_step(
                 )
         else:
             bridge.save_user_memory(uid, first_name, "")
-            greeting = result or f"سلام {first_name}! به SGPT 1 خوش اومدی 🎉"
+            greeting = result or f"سلام {first_name}! به SGPT 1 خوش اومدی 🎉"  # type: ignore[arg-type]
             bot.reply_to(message, greeting, reply_markup=remove_kb)
 
         logger.info(f"Welcome step complete | user_id={uid}")

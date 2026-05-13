@@ -9,7 +9,8 @@ from telebot import types
 
 from app.agent.format_response import AgentResponse
 from app.db.session import get_db_session
-from app.services import bale_user_service
+from app.plans import PLAN_CONFIG
+from app.services import bale_user_service, subscription_service
 from integrations.bale.formatting import markdown_to_bale_markdown, split_reply_text
 from integrations.bale.handlers.deps import BaleHandlerDeps, log_bale_incoming
 
@@ -55,6 +56,35 @@ _GOT_IT_STATUS_LINES: tuple[str, ...] = (
 _pending_questions: dict[str, list[str]] = {}
 # Maps bale_tid -> list of ExamQuestion for the active exam
 _pending_exams: dict[str, list] = {}
+
+
+def _rate_limit_keyboard() -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("💳 ارتقای پلن", callback_data="open_pay"))
+    return markup
+
+
+def _send_rate_limit_message(bot: object, message: types.Message, sub: object) -> None:
+    from telebot import TeleBot
+    _bot: TeleBot = bot  # type: ignore[assignment]
+    plan_key = getattr(sub, "plan_key", "free")
+    used_usd = getattr(sub, "used_usd", 0.0)
+    budget_usd = getattr(sub, "budget_usd", 1.0) or 1.0
+    used_pct = min(100, int((used_usd / budget_usd) * 100))
+    plan_label = PLAN_CONFIG.get(plan_key, {}).get("label", plan_key)
+    if plan_key == "free":
+        text = (
+            "⚠️ *سهمیه رایگان شما تموم شده!*\n\n"
+            f"تا الان *{used_pct}%* از بودجه رایگانت استفاده کردی.\n"
+            "برای ادامه یه پلن انتخاب کن 👇"
+        )
+    else:
+        text = (
+            f"⚠️ *سقف مصرف {plan_label} پر شده!*\n\n"
+            f"*{used_pct}%* از بودجه ماهانه‌ات مصرف شده.\n"
+            "برای ادامه، پلن خودت رو ارتقا بده 👇"
+        )
+    _bot.reply_to(message, text, parse_mode="Markdown", reply_markup=_rate_limit_keyboard())
 
 
 def _format_main_response(resp: AgentResponse) -> str:
@@ -228,6 +258,21 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 )
                 return
 
+            # Rate-limit check
+            try:
+                rl_db = get_db_session()
+                try:
+                    allowed, sub = subscription_service.check_rate_limit(rl_db, bale_tid)
+                finally:
+                    rl_db.close()
+            except Exception as rl_err:
+                logger.error(f"Rate-limit check failed: {rl_err}", exc_info=True)
+                allowed, sub = True, None  # fail open
+
+            if not allowed:
+                _send_rate_limit_message(bot, message, sub)
+                return
+
             status_msg: list[types.Message | None] = [None]
 
             def _edit_status(text: str) -> None:
@@ -258,7 +303,7 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 log_msg(bale_tid, "out", "status", text)
 
             try:
-                answer = bridge.invoke_reply_with_status(
+                answer, cost_usd = bridge.invoke_reply_with_status(
                     bale_tid,
                     prompt,
                     on_thinking=on_thinking,
@@ -281,6 +326,15 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
             _send_answer(bale_tid, answer, message, status_msg[0])
             answer_text = answer.main_content if isinstance(answer, AgentResponse) else str(answer)
             log_msg(bale_tid, "out", "text", answer_text)
+
+            try:
+                usage_db = get_db_session()
+                try:
+                    subscription_service.record_usage(usage_db, bale_tid, cost_usd)
+                finally:
+                    usage_db.close()
+            except Exception as usage_err:
+                logger.error(f"Usage record failed: {usage_err}", exc_info=True)
 
         except Exception as e:
             logger.error(f"Error in handle_deep_chat: {e}", exc_info=True)
@@ -366,7 +420,7 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 log_msg(bale_tid, "out", "status", text)
 
             try:
-                answer = bridge.invoke_reply_with_status(
+                answer, cost_usd = bridge.invoke_reply_with_status(
                     bale_tid,
                     question,
                     on_thinking=on_thinking,
@@ -389,6 +443,14 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
             _send_answer(bale_tid, answer, question_msg, status_msg[0])
             answer_text = answer.main_content if isinstance(answer, AgentResponse) else str(answer)
             log_msg(bale_tid, "out", "text", answer_text)
+            try:
+                usage_db = get_db_session()
+                try:
+                    subscription_service.record_usage(usage_db, bale_tid, cost_usd)
+                finally:
+                    usage_db.close()
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error(f"Error in handle_next_question_callback: {e}", exc_info=True)
@@ -559,7 +621,7 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 log_msg(bale_tid, "out", "status", text)
 
             try:
-                answer = bridge.invoke_reply_with_status(
+                answer, cost_usd = bridge.invoke_reply_with_status(
                     bale_tid,
                     explanation_prompt,
                     on_thinking=on_thinking,
@@ -582,6 +644,14 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
             _send_answer(bale_tid, answer, question_msg, status_msg[0])
             answer_text = answer.main_content if isinstance(answer, AgentResponse) else str(answer)
             log_msg(bale_tid, "out", "text", answer_text)
+            try:
+                usage_db = get_db_session()
+                try:
+                    subscription_service.record_usage(usage_db, bale_tid, cost_usd)
+                finally:
+                    usage_db.close()
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error(f"Error in handle_exam_explain_callback: {e}", exc_info=True)
@@ -589,3 +659,18 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 bot.answer_callback_query(call.id, "خطایی پیش آمد!")
             except Exception:
                 pass
+
+    @bot.callback_query_handler(func=lambda call: call.data == "open_pay")
+    def handle_open_pay_callback(call: types.CallbackQuery) -> None:
+        try:
+            from integrations.bale.handlers.payment import _plan_keyboard
+            bot.answer_callback_query(call.id)
+            if call.message:
+                bot.send_message(
+                    call.message.chat.id,
+                    "💳 *انتخاب پلن اشتراک*\n\nیه پلن مناسب انتخاب کن:",
+                    parse_mode="Markdown",
+                    reply_markup=_plan_keyboard(),
+                )
+        except Exception as e:
+            logger.error(f"Error in handle_open_pay_callback: {e}", exc_info=True)
