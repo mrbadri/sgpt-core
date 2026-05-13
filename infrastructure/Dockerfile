@@ -45,8 +45,8 @@ COPY backend/ ./
 
 # Copy docker scripts to a location that won't be overwritten by volume mounts
 RUN mkdir -p /docker-scripts
-COPY docker/scripts/entrypoint.sh /docker-scripts/entrypoint.sh
-COPY docker/scripts/wait_for_db.sh /docker-scripts/wait_for_db.sh
+COPY infrastructure/scripts/entrypoint.sh /docker-scripts/entrypoint.sh
+COPY infrastructure/scripts/wait_for_db.sh /docker-scripts/wait_for_db.sh
 
 # Strip Windows CRLF so shebang and `set -e` work under Linux
 RUN sed -i 's/\r$//' /docker-scripts/*.sh

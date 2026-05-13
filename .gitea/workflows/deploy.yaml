@@ -26,18 +26,19 @@ jobs:
         env:
           ENV_FILE_CONTENT: ${{ secrets.ENV_FILE_CONTENT }}
         run: |
-          printf '%s' "$ENV_FILE_CONTENT" > .env
-          echo "Environment file written."
+          mkdir -p infrastructure
+          printf '%s' "$ENV_FILE_CONTENT" > infrastructure/.env
+          echo "Environment file written to infrastructure/.env."
 
-      # مرحله سوم: بیلد ایمیج با docker/docker-compose.prod.yml (همان مسیر make prod-build)
+      # مرحله سوم: بیلد ایمیج با infrastructure/docker-compose.prod.yml (همان مسیر make prod-build)
       - name: Build Docker Image
         run: |
           echo "Starting Docker Build..."
-          docker compose -f docker/docker-compose.prod.yml build
+          docker compose -f infrastructure/docker-compose.prod.yml build
 
       # مرحله چهارم: اجرای اپلیکیشن
       - name: Deploy Application
         run: |
           echo "Updating containers..."
-          docker compose -f docker/docker-compose.prod.yml up -d
+          docker compose -f infrastructure/docker-compose.prod.yml up -d
           echo "Deployment finished successfully!"

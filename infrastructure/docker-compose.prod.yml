@@ -1,0 +1,137 @@
+name: sgpt-prod
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bale_bot"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - backend_network
+
+  backend:
+    build:
+      context: ..
+      dockerfile: infrastructure/Dockerfile
+    ports:
+      - "8800:8000"
+    volumes:
+      - user_memories:/app/user_memories
+    env_file:
+      - .env
+    environment:
+      - DEBUG=false
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+      - USER_MEMORIES_DIR=/app/user_memories
+    depends_on:
+      db:
+        condition: service_healthy
+      falkordb:
+        condition: service_healthy
+    restart: unless-stopped
+    working_dir: /app
+    networks:
+      - backend_network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    entrypoint: >
+      /bin/sh -c "
+      echo 'db:5432:*:${POSTGRES_USER}:${POSTGRES_PASSWORD}' > /tmp/pgpass &&
+      chmod 600 /tmp/pgpass &&
+      /entrypoint.sh
+      "
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+      # Must be valid Python (embedded in dict + config_distro.py); not bare `local`
+      PGADMIN_CONFIG_ALLOW_SPECIAL_EMAIL_DOMAINS: "['local']"
+      PGADMIN_CONFIG_SERVER_MODE: "True"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "True"
+      PGADMIN_CONFIG_UPGRADE_CHECK_ENABLED: "False"
+      PGADMIN_CONFIG_SESSION_COOKIE_SECURE: "True"
+      PGADMIN_CONFIG_SESSION_COOKIE_HTTPONLY: "True"
+      PGADMIN_CONFIG_WTF_CSRF_ENABLED: "True"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin-servers.prod.json:/pgadmin4/servers.json:ro
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - backend_network
+
+  # FalkorDB Browser UI: localhost:3379 → port 3000 inside container. With
+  # `--requirepass`, use Redis ACL username `default` and this password — not host `falkordb`.
+  # https://docs.falkordb.com/browser/ui/login.html
+  falkordb:
+    image: falkordb/falkordb:latest
+    # container_name: falkordb-production
+    ports:
+      - "8379:6379"
+      - "3379:3000"
+    environment:
+      - REDIS_ARGS=--requirepass ${FALKORDB_PASSWORD:-abcd@1234} --appendonly yes --appendfsync everysec --maxmemory 2gb --maxmemory-policy allkeys-lru
+      - FALKORDB_ARGS=THREAD_COUNT 8 CACHE_SIZE 50 TIMEOUT_MAX 60000 TIMEOUT_DEFAULT 30000 QUERY_MEM_CAPACITY 104857600
+    volumes:
+      - falkordb_data:/data
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "$${FALKORDB_PASSWORD:-abcd@1234}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - backend_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  falkordb_data:
+  user_memories:
+
+networks:
+  backend_network:
+    driver: bridge

@@ -1,3 +1,5 @@
+name: sgpt-dev
+
 services:
   db:
     image: postgres:18-alpine
@@ -18,7 +20,7 @@ services:
   backend:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: infrastructure/Dockerfile
     volumes:
       - ../backend:/app
       - /app/.venv
@@ -26,7 +28,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - ../.env
+      - .env
     environment:
       - DATABASE_URL=postgresql://bale_bot:dev_password@db:5432/bale_bot
       - DEBUG=true
@@ -52,6 +54,7 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
       PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_ALLOW_SPECIAL_EMAIL_DOMAINS: "['local']"
       PGADMIN_CONFIG_SERVER_MODE: "False"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
       PGADMIN_CONFIG_UPGRADE_CHECK_ENABLED: "False"

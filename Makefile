@@ -14,8 +14,8 @@ test-integration test-users
 ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
 # Docker Compose file paths
-DEV_COMPOSE = $(ROOT_DIR)/docker/docker-compose.dev.yml
-PROD_COMPOSE = $(ROOT_DIR)/docker/docker-compose.prod.yml
+DEV_COMPOSE = $(ROOT_DIR)/infrastructure/docker-compose.dev.yml
+PROD_COMPOSE = $(ROOT_DIR)/infrastructure/docker-compose.prod.yml
 
 # Default target
 .DEFAULT_GOAL := help

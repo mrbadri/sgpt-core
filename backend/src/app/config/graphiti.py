@@ -13,7 +13,7 @@ class GraphitiSettings(BaseSettings):
     """Mirrors repo `.env.example` Graphiti / Falkor variables."""
 
     model_config = SettingsConfigDict(
-        env_file=(".env", "../.env"),
+        env_file=("./../infrastructure/.env"),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
