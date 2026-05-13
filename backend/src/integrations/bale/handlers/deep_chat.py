@@ -417,28 +417,149 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
             if is_correct:
                 bot.answer_callback_query(call.id, "✅ آفرین! پاسخ درسته!")
-                result_text = f"✅ *پاسخ درست!*\n📖 _{q.explanation}_"
+                result_text = f"✅ *پاسخ درست!* _{chosen}_"
             else:
                 bot.answer_callback_query(call.id, "❌ اشتباه بود!")
                 result_text = (
                     f"❌ *اشتباه!* گزینه انتخابی: _{chosen}_\n"
-                    f"✅ *پاسخ صحیح:* _{q.correct_answer}_\n"
-                    f"📖 _{q.explanation}_"
+                    f"✅ *پاسخ صحیح:* _{q.correct_answer}_"
                 )
 
-            if call.message and isinstance(call.message, types.Message):
-                try:
-                    bot.edit_message_text(
-                        f"*سوال {q_idx + 1}:* {q.question}\n\n{result_text}",
-                        chat_id=call.message.chat.id,
-                        message_id=call.message.message_id,
-                        parse_mode="Markdown",
-                    )
-                except Exception:
-                    bot.send_message(call.message.chat.id, result_text, parse_mode="Markdown")
+            if not call.message or not isinstance(call.message, types.Message):
+                return
+
+            chat_id = call.message.chat.id
+
+            # Show feedback + single "explain" button (no agent call yet)
+            explain_markup = types.InlineKeyboardMarkup()
+            explain_markup.add(types.InlineKeyboardButton(
+                "💡 توضیح بیشتر می‌خوام",
+                callback_data=f"ex:{bale_tid}:{q_idx}",
+            ))
+            try:
+                bot.edit_message_text(
+                    f"*سوال {q_idx + 1}:* {q.question}\n\n{result_text}",
+                    chat_id=chat_id,
+                    message_id=call.message.message_id,
+                    parse_mode="Markdown",
+                    reply_markup=explain_markup,
+                )
+            except Exception:
+                bot.send_message(chat_id, result_text, parse_mode="Markdown")
+
+            # Silently record this answer so the agent knows about it on the next call
+            result_label = "درست" if is_correct else "اشتباه"
+            bridge.add_exam_context(
+                bale_tid,
+                f"سوال {q_idx + 1}: {q.question} | انتخابی: {chosen} | صحیح: {q.correct_answer} | {result_label}",
+            )
 
         except Exception as e:
             logger.error(f"Error in handle_exam_answer_callback: {e}", exc_info=True)
+            try:
+                bot.answer_callback_query(call.id, "خطایی پیش آمد!")
+            except Exception:
+                pass
+
+    @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("ex:"))
+    def handle_exam_explain_callback(call: types.CallbackQuery) -> None:
+        try:
+            if not call.data:
+                bot.answer_callback_query(call.id)
+                return
+
+            parts = call.data.split(":", 2)
+            if len(parts) != 3:
+                bot.answer_callback_query(call.id)
+                return
+
+            _, tid_str, q_idx_str = parts
+            bale_tid = int(tid_str)
+            q_idx = int(q_idx_str)
+
+            exam_qs = _pending_exams.get(str(bale_tid), [])
+            if q_idx >= len(exam_qs):
+                bot.answer_callback_query(call.id, "سوال پیدا نشد!")
+                return
+
+            q = exam_qs[q_idx]
+            bot.answer_callback_query(call.id, "⏳ دارم توضیح می‌دم...")
+
+            if not call.message or not isinstance(call.message, types.Message):
+                return
+
+            chat_id = call.message.chat.id
+
+            # Remove the explain button from the question message
+            try:
+                bot.edit_message_reply_markup(
+                    chat_id=chat_id,
+                    message_id=call.message.message_id,
+                    reply_markup=types.InlineKeyboardMarkup(),
+                )
+            except Exception:
+                pass
+
+            # Show the question as a standalone message, then reply to it
+            try:
+                question_msg = bot.send_message(chat_id, f"❓ {q.question}")
+            except Exception:
+                question_msg = call.message
+
+            explanation_prompt = (
+                f"لطفاً این سوال آزمون را کامل توضیح بده:\n"
+                f"سوال: {q.question}\n"
+                f"گزینه‌ها: {', '.join(q.options)}\n"
+                f"پاسخ صحیح: {q.correct_answer}\n"
+                f"چرا پاسخ صحیح درست است و چرا بقیه گزینه‌ها اشتباه هستند؟"
+            )
+
+            status_msg: list[types.Message | None] = [None]
+
+            def _edit_status(text: str) -> None:
+                msg = status_msg[0]
+                if msg is None:
+                    return
+                try:
+                    bot.edit_message_text(text, chat_id=msg.chat.id, message_id=msg.message_id)
+                except Exception:
+                    pass
+
+            def on_thinking() -> None:
+                try:
+                    status_msg[0] = bot.reply_to(question_msg, random.choice(_THINKING_STATUS_LINES))
+                except Exception:
+                    pass
+
+            def on_searching() -> None:
+                _edit_status(random.choice(_SEARCHING_STATUS_LINES))
+
+            def on_got_it() -> None:
+                _edit_status(random.choice(_GOT_IT_STATUS_LINES))
+
+            try:
+                answer = bridge.invoke_reply_with_status(
+                    bale_tid,
+                    explanation_prompt,
+                    on_thinking=on_thinking,
+                    on_searching=on_searching,
+                    on_got_it=on_got_it,
+                )
+            except Exception as agent_err:
+                logger.error(f"Exam explain agent error: {agent_err}", exc_info=True)
+                msg = status_msg[0]
+                if msg:
+                    try:
+                        bot.delete_message(msg.chat.id, msg.message_id)
+                    except Exception:
+                        pass
+                bot.send_message(chat_id, "⚡ خطایی پیش آمد، دوباره تلاش کن.")
+                return
+
+            _send_answer(bale_tid, answer, question_msg, status_msg[0])
+
+        except Exception as e:
+            logger.error(f"Error in handle_exam_explain_callback: {e}", exc_info=True)
             try:
                 bot.answer_callback_query(call.id, "خطایی پیش آمد!")
             except Exception:

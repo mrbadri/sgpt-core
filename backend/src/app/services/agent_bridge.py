@@ -54,6 +54,10 @@ def _read_user_memory(bale_tid: int) -> str:
     return ""
 
 
+# Exam answer records queued to be injected into the next agent call (no round-trip needed).
+_pending_exam_context: dict[int, list[str]] = {}
+
+
 class BaleAgentBridge:
     """Lazily builds the Graphiti deep agent and runs it with per-user thread ids."""
 
@@ -70,6 +74,10 @@ class BaleAgentBridge:
 
                 self._agent = build_graphiti_deep_agent(checkpointer=MemorySaver())
             return self._agent
+
+    def add_exam_context(self, bale_tid: int, entry: str) -> None:
+        """Record an exam answer silently — injected into the next agent call."""
+        _pending_exam_context.setdefault(bale_tid, []).append(entry)
 
     def invoke_reply(self, bale_tid: int, text: str) -> Union[AgentResponse, str]:
         """Run the agent and return the structured response or last assistant text."""
@@ -89,12 +97,14 @@ class BaleAgentBridge:
 
         # Prepend long-term memory if available
         memory_contents = _read_user_memory(bale_tid)
-        if memory_contents:
-            user_content: Any = (
-                f"[حافظه بلندمدت کاربر]\n{memory_contents}\n[پایان حافظه]\n\n{text}"
-            )
-        else:
-            user_content = text
+        prefix = f"[حافظه بلندمدت کاربر]\n{memory_contents}\n[پایان حافظه]\n\n" if memory_contents else ""
+
+        # Consume any pending exam context and prepend it
+        exam_entries = _pending_exam_context.pop(bale_tid, [])
+        if exam_entries:
+            prefix += "[نتایج آزمون این جلسه]\n" + "\n".join(exam_entries) + "\n[پایان نتایج]\n\n"
+
+        user_content: Any = prefix + text if prefix else text
 
         return asyncio.run(self._stream_agent(agent, cfg, user_content, on_thinking, on_searching, on_got_it))
 
