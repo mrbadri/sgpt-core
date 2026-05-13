@@ -45,7 +45,7 @@ _GOT_IT_STATUS_LINES: tuple[str, ...] = (
     "✨ خیل خب، اینم از این! ببین چطوره...",
     "🎉 تمام! دارم متن نهایی رو برات ردیف می‌کنم...",
     "💎 آها! یه چیز خیلی مشتی پیدا کردم، الان می‌بینی...",
-    "📝 دارم دسته‌بندی‌ش می‌کنم که هلو بره تو گلو! 🍑",
+    "📝 دارم دسته‌بندیش می‌کنم که هلو بره تو گلو! 🍑",
     "🚀 موتورم گرم شد! بیا که جواب حاضره...",
     "🔥 حله، جواب دقیقاً همینه که الان می‌فرستم...",
     "👌 یافتم! دارم آخرین ویرایش‌ها رو انجام می‌دم...",
@@ -56,6 +56,8 @@ _GOT_IT_STATUS_LINES: tuple[str, ...] = (
 _pending_questions: dict[str, list[str]] = {}
 # Maps bale_tid -> list of ExamQuestion for the active exam
 _pending_exams: dict[str, list] = {}
+
+# aa-uSNEaXREh8ZEi3y0pU2EIs1TFd3LW3GMThkBlGdaBWVn4zhB
 
 
 def _rate_limit_keyboard() -> types.InlineKeyboardMarkup:
@@ -107,18 +109,23 @@ def _format_main_response(resp: AgentResponse) -> str:
     return "\n".join(lines)
 
 
-_BTN_MAX_LEN = 40
-
-
-def _truncate_btn(text: str) -> str:
-    return text if len(text) <= _BTN_MAX_LEN else text[:_BTN_MAX_LEN - 1] + "…"
+_BTN_MAX = 38
 
 
 def _next_questions_keyboard(bale_tid: int, questions: list[str]) -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
     for i, q in enumerate(questions):
-        markup.add(types.InlineKeyboardButton(_truncate_btn(q), callback_data=f"nq:{bale_tid}:{i}"))
+        label = q if len(q) <= _BTN_MAX else q[:_BTN_MAX - 1] + "…"
+        markup.add(types.InlineKeyboardButton(label, callback_data=f"nq:{bale_tid}:{i}"))
     return markup
+
+
+def _questions_message(questions: list[str]) -> str:
+    lines = ["💬 *سوال‌های پیشنهادی:*", ""]
+    for q in questions:
+        lines.append(f"• {q}")
+    return "\n".join(lines)
+
 
 
 def _exam_question_keyboard(bale_tid: int, q_idx: int, options: list[str]) -> types.InlineKeyboardMarkup:
@@ -182,8 +189,8 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
             else:
                 questions = list(answer.next_questions) if answer.next_questions else []
                 _pending_questions[str(bale_tid)] = questions
-                markup = _next_questions_keyboard(bale_tid, questions) if questions else None
 
+                # Send main answer clean (no keyboard)
                 if status_msg is not None:
                     try:
                         bot.edit_message_text(
@@ -191,12 +198,21 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                             chat_id=status_msg.chat.id,
                             message_id=status_msg.message_id,
                             parse_mode="Markdown",
-                            reply_markup=markup,
                         )
-                        return
                     except Exception:
-                        pass
-                bot.send_message(reply_to.chat.id, body_md, parse_mode="Markdown", reply_markup=markup)
+                        bot.send_message(reply_to.chat.id, body_md, parse_mode="Markdown")
+                else:
+                    bot.send_message(reply_to.chat.id, body_md, parse_mode="Markdown")
+
+                # Separate message: full question text + truncated buttons
+                if questions:
+                    bot.send_message(
+                        reply_to.chat.id,
+                        _questions_message(questions),
+                        parse_mode="Markdown",
+                        reply_markup=_next_questions_keyboard(bale_tid, questions),
+                    )
+                return
         else:
             # Plain-text fallback
             text_answer = answer if answer else (
