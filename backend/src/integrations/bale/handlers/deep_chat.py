@@ -100,6 +100,7 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
     logger = deps.logger
     bridge = deps.agent_bridge
     reply_long = deps.reply_long_text
+    log_msg = deps.log_message
 
     def _plain_text_predicate(m: types.Message) -> bool:
         txt = getattr(m, "text", None)
@@ -193,6 +194,8 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
             user_id=uid,
             prompt_preview=raw[:120] if raw else "",
         )
+        if uid:
+            log_msg(uid, "in", "text", raw, message.message_id)
         try:
             if not message.from_user:
                 bot.reply_to(
@@ -238,18 +241,21 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
             def on_thinking() -> None:
                 try:
-                    status_msg[0] = bot.reply_to(
-                        message,
-                        random.choice(_THINKING_STATUS_LINES),
-                    )
+                    text = random.choice(_THINKING_STATUS_LINES)
+                    status_msg[0] = bot.reply_to(message, text)
+                    log_msg(bale_tid, "out", "status", text)
                 except Exception:
                     pass
 
             def on_searching() -> None:
-                _edit_status(random.choice(_SEARCHING_STATUS_LINES))
+                text = random.choice(_SEARCHING_STATUS_LINES)
+                _edit_status(text)
+                log_msg(bale_tid, "out", "status", text)
 
             def on_got_it() -> None:
-                _edit_status(random.choice(_GOT_IT_STATUS_LINES))
+                text = random.choice(_GOT_IT_STATUS_LINES)
+                _edit_status(text)
+                log_msg(bale_tid, "out", "status", text)
 
             try:
                 answer = bridge.invoke_reply_with_status(
@@ -267,21 +273,22 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                         bot.delete_message(msg.chat.id, msg.message_id)
                     except Exception:
                         pass
-                bot.reply_to(
-                    message,
-                    "⚡ انرژی سیستم یه لحظه افت کرد! دوباره بپرس تا با قدرت کامل جواب بدم. این دفعه حله! 🚀",
-                )
+                error_text = "⚡ انرژی سیستم یه لحظه افت کرد! دوباره بپرس تا با قدرت کامل جواب بدم. این دفعه حله! 🚀"
+                bot.reply_to(message, error_text)
+                log_msg(bale_tid, "out", "error", error_text)
                 return
 
             _send_answer(bale_tid, answer, message, status_msg[0])
+            answer_text = answer.main_content if isinstance(answer, AgentResponse) else str(answer)
+            log_msg(bale_tid, "out", "text", answer_text)
 
         except Exception as e:
             logger.error(f"Error in handle_deep_chat: {e}", exc_info=True)
             try:
-                bot.reply_to(
-                    message,
-                    "🎙️ یک-دو-سه، امتحان می‌کنیم! یه نویز کوچیک افتاد تو ارتباطمون. یه بار دیگه بفرست که پرقدرت بریم جلو! 💪",
-                )
+                error_text = "🎙️ یک-دو-سه، امتحان می‌کنیم! یه نویز کوچیک افتاد تو ارتباطمون. یه بار دیگه بفرست که پرقدرت بریم جلو! 💪"
+                bot.reply_to(message, error_text)
+                if uid:
+                    log_msg(uid, "out", "error", error_text)
             except Exception:
                 pass
 
@@ -327,6 +334,7 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 question_msg = bot.send_message(chat_id, f"❓ {question}")
             except Exception:
                 question_msg = call.message
+            log_msg(bale_tid, "in", "callback", question)
 
             status_msg: list[types.Message | None] = [None]
 
@@ -341,18 +349,21 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
             def on_thinking() -> None:
                 try:
-                    status_msg[0] = bot.reply_to(
-                        question_msg,
-                        random.choice(_THINKING_STATUS_LINES),
-                    )
+                    text = random.choice(_THINKING_STATUS_LINES)
+                    status_msg[0] = bot.reply_to(question_msg, text)
+                    log_msg(bale_tid, "out", "status", text)
                 except Exception:
                     pass
 
             def on_searching() -> None:
-                _edit_status(random.choice(_SEARCHING_STATUS_LINES))
+                text = random.choice(_SEARCHING_STATUS_LINES)
+                _edit_status(text)
+                log_msg(bale_tid, "out", "status", text)
 
             def on_got_it() -> None:
-                _edit_status(random.choice(_GOT_IT_STATUS_LINES))
+                text = random.choice(_GOT_IT_STATUS_LINES)
+                _edit_status(text)
+                log_msg(bale_tid, "out", "status", text)
 
             try:
                 answer = bridge.invoke_reply_with_status(
@@ -370,13 +381,14 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                         bot.delete_message(msg.chat.id, msg.message_id)
                     except Exception:
                         pass
-                bot.send_message(
-                    chat_id,
-                    "⚡ انرژی سیستم یه لحظه افت کرد! دوباره بپرس تا با قدرت کامل جواب بدم. این دفعه حله! 🚀",
-                )
+                error_text = "⚡ انرژی سیستم یه لحظه افت کرد! دوباره بپرس تا با قدرت کامل جواب بدم. این دفعه حله! 🚀"
+                bot.send_message(chat_id, error_text)
+                log_msg(bale_tid, "out", "error", error_text)
                 return
 
             _send_answer(bale_tid, answer, question_msg, status_msg[0])
+            answer_text = answer.main_content if isinstance(answer, AgentResponse) else str(answer)
+            log_msg(bale_tid, "out", "text", answer_text)
 
         except Exception as e:
             logger.error(f"Error in handle_next_question_callback: {e}", exc_info=True)
@@ -449,6 +461,8 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
             # Silently record this answer so the agent knows about it on the next call
             result_label = "درست" if is_correct else "اشتباه"
+            log_msg(bale_tid, "in", "callback", f"exam answer: {chosen} ({result_label})")
+            log_msg(bale_tid, "out", "text", result_text)
             bridge.add_exam_context(
                 bale_tid,
                 f"سوال {q_idx + 1}: {q.question} | انتخابی: {chosen} | صحیح: {q.correct_answer} | {result_label}",
@@ -505,6 +519,7 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 question_msg = bot.send_message(chat_id, f"❓ {q.question}")
             except Exception:
                 question_msg = call.message
+            log_msg(bale_tid, "in", "callback", f"explain: {q.question}")
 
             explanation_prompt = (
                 f"لطفاً این سوال آزمون را کامل توضیح بده:\n"
@@ -527,15 +542,21 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
             def on_thinking() -> None:
                 try:
-                    status_msg[0] = bot.reply_to(question_msg, random.choice(_THINKING_STATUS_LINES))
+                    text = random.choice(_THINKING_STATUS_LINES)
+                    status_msg[0] = bot.reply_to(question_msg, text)
+                    log_msg(bale_tid, "out", "status", text)
                 except Exception:
                     pass
 
             def on_searching() -> None:
-                _edit_status(random.choice(_SEARCHING_STATUS_LINES))
+                text = random.choice(_SEARCHING_STATUS_LINES)
+                _edit_status(text)
+                log_msg(bale_tid, "out", "status", text)
 
             def on_got_it() -> None:
-                _edit_status(random.choice(_GOT_IT_STATUS_LINES))
+                text = random.choice(_GOT_IT_STATUS_LINES)
+                _edit_status(text)
+                log_msg(bale_tid, "out", "status", text)
 
             try:
                 answer = bridge.invoke_reply_with_status(
@@ -553,10 +574,14 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                         bot.delete_message(msg.chat.id, msg.message_id)
                     except Exception:
                         pass
-                bot.send_message(chat_id, "⚡ خطایی پیش آمد، دوباره تلاش کن.")
+                error_text = "⚡ خطایی پیش آمد، دوباره تلاش کن."
+                bot.send_message(chat_id, error_text)
+                log_msg(bale_tid, "out", "error", error_text)
                 return
 
             _send_answer(bale_tid, answer, question_msg, status_msg[0])
+            answer_text = answer.main_content if isinstance(answer, AgentResponse) else str(answer)
+            log_msg(bale_tid, "out", "text", answer_text)
 
         except Exception as e:
             logger.error(f"Error in handle_exam_explain_callback: {e}", exc_info=True)

@@ -87,13 +87,18 @@ def register_payment_handler(deps: BaleHandlerDeps) -> None:
             user_id=uid,
             text=getattr(message, "text", None),
         )
+        if uid:
+            deps.log_message(uid, "in", "command", "/pay", message.message_id)
         try:
+            plan_text = "💳 *انتخاب پلن اشتراک*\n\nیک پلن را انتخاب کنید:"
             bot.send_message(
                 message.chat.id,
-                "💳 *انتخاب پلن اشتراک*\n\nیک پلن را انتخاب کنید:",
+                plan_text,
                 parse_mode="Markdown",
                 reply_markup=_plan_keyboard(),
             )
+            if uid:
+                deps.log_message(uid, "out", "text", plan_text)
         except Exception as e:
             logger.error(f"Error sending plan selection: {e}", exc_info=True)
 
@@ -108,6 +113,8 @@ def register_payment_handler(deps: BaleHandlerDeps) -> None:
             user_id=uid,
             callback_data=call.data,
         )
+        if uid and call.data:
+            deps.log_message(uid, "in", "callback", call.data)
         try:
             if not call.data:
                 bot.answer_callback_query(call.id)
@@ -179,6 +186,8 @@ def register_payment_handler(deps: BaleHandlerDeps) -> None:
             total_amount=getattr(sp0, "total_amount", None),
             currency=getattr(sp0, "currency", None),
         )
+        if uid:
+            deps.log_message(uid, "in", "payment", f"successful_payment: {getattr(sp0, 'total_amount', '')} {getattr(sp0, 'currency', '')}", message.message_id)
         try:
             sp = message.successful_payment
             if sp is None:
@@ -218,13 +227,13 @@ def register_payment_handler(deps: BaleHandlerDeps) -> None:
 
             plan = PLANS.get(plan_key, {})
             plan_label = plan.get("label", plan_key)
-            bot.send_message(
-                message.chat.id,
+            success_text = (
                 f"✅ *پرداخت موفق!*\n\n"
                 f"پلن {plan_label} با موفقیت فعال شد.\n"
                 f"مبلغ: {sp.total_amount:,} {sp.currency}\n"
-                f"کد پیگیری: `{sp.provider_payment_charge_id}`",
-                parse_mode="Markdown",
+                f"کد پیگیری: `{sp.provider_payment_charge_id}`"
             )
+            bot.send_message(message.chat.id, success_text, parse_mode="Markdown")
+            deps.log_message(bale_user_id, "out", "text", success_text)
         except Exception as e:
             logger.error(f"Error handling successful_payment: {e}", exc_info=True)

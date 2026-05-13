@@ -33,6 +33,8 @@ def register_contact_handler(deps: BaleHandlerDeps) -> None:
                 phone_hint=phone_hint,
                 message_id=message.message_id,
             )
+            if uid:
+                deps.log_message(uid, "in", "contact", phone_hint, message.message_id)
 
             mobile = bale_user_service.normalize_mobile_from_contact(pn)
             if mobile is None:

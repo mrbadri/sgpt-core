@@ -22,6 +22,8 @@ def register_fallback_handler(deps: BaleHandlerDeps) -> None:
                     user_id=uid,
                     text=message.text,
                 )
+                if uid:
+                    deps.log_message(uid, "in", "command", message.text, message.message_id)
                 logger.warning(
                     f"Unknown command received from user {message.from_user}: {message.text}"
                 )

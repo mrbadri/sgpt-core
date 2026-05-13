@@ -26,6 +26,8 @@ def register_start_handler(deps: BaleHandlerDeps) -> None:
             username=uname,
             text=getattr(message, "text", None),
         )
+        if uid:
+            deps.log_message(uid, "in", "command", "/start", message.message_id)
         try:
             # Check if user is already linked
             linked_user = None
@@ -55,6 +57,8 @@ def register_start_handler(deps: BaleHandlerDeps) -> None:
             )
             keyboard.add(contact_button)
             bot.reply_to(message, greeting, reply_markup=keyboard)
+            if uid:
+                deps.log_message(uid, "out", "text", greeting)
 
             logger.info(
                 f"/start received | user_id={uid} "
