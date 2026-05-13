@@ -10,7 +10,7 @@ PLAN_CONFIG: dict[str, dict] = {
 
 # (plan_key, duration_months) → price in IRR
 PLAN_PRICES: dict[tuple[str, int], int] = {
-    ("basic", 1): 1_000,
+    ("basic", 1): 50_000,
     ("basic", 3): 299_000,
     ("pro",   1): 600_000,
     ("pro",   3): 1500_000,

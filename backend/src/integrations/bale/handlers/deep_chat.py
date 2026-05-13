@@ -107,10 +107,17 @@ def _format_main_response(resp: AgentResponse) -> str:
     return "\n".join(lines)
 
 
+_BTN_MAX_LEN = 40
+
+
+def _truncate_btn(text: str) -> str:
+    return text if len(text) <= _BTN_MAX_LEN else text[:_BTN_MAX_LEN - 1] + "…"
+
+
 def _next_questions_keyboard(bale_tid: int, questions: list[str]) -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
     for i, q in enumerate(questions):
-        markup.add(types.InlineKeyboardButton(q, callback_data=f"nq:{bale_tid}:{i}"))
+        markup.add(types.InlineKeyboardButton(_truncate_btn(q), callback_data=f"nq:{bale_tid}:{i}"))
     return markup
 
 
