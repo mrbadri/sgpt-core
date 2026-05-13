@@ -6,13 +6,14 @@ from telebot import types
 
 from app.db.session import get_db_session
 from app.services import bale_user_service
-from integrations.bale.channel_check import run_channel_check
 from integrations.bale.handlers.deps import BaleHandlerDeps, log_bale_incoming
+from integrations.bale.handlers.welcome import run_welcome_step
 
 
 def register_contact_handler(deps: BaleHandlerDeps) -> None:
     bot = deps.bot
     logger = deps.logger
+    bridge = deps.agent_bridge
 
     @bot.message_handler(content_types=["contact"])
     def handle_contact(message: types.Message) -> None:
@@ -67,7 +68,7 @@ def register_contact_handler(deps: BaleHandlerDeps) -> None:
                 bot.reply_to(message, db_error)
                 return
 
-            run_channel_check(bot, message, logger)
+            run_welcome_step(bot, message, logger, bridge)
 
         except Exception as e:
             logger.error(f"Error handling contact: {e}", exc_info=True)

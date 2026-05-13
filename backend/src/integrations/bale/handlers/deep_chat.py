@@ -7,7 +7,7 @@ from typing import Union
 
 from telebot import types
 
-from app.agent.sample import StudentResponse
+from app.agent.format_response import AgentResponse
 from app.db.session import get_db_session
 from app.services import bale_user_service
 from integrations.bale.formatting import markdown_to_bale_markdown, split_reply_text
@@ -32,7 +32,6 @@ _SEARCHING_STATUS_LINES: tuple[str, ...] = (
     "🔍 اجازه بده یه نگاهی به منابع بندازم، الان میام...",
     "🎯 دارم روی بهترین پاسخ تمرکز می‌کنم...",
     "📖 دارم مثل یه کارآگاه دنبال نکته‌های طلایی می‌گردم! 🕵️‍♂️",
-    "🌐 دارم کل دیتابیس رو شخم می‌زنم برات...",
     "⚡️ یه لحظه صبر کن، دارم بهترین مسیر رو پیدا می‌کنم...",
     "🧩 دارم قطعات پازل رو کنار هم می‌چینم...",
     "🌀 دارم از میون هزارتا مطلب، اصل جنس رو برات سوا می‌کنم!",
@@ -54,22 +53,27 @@ _GOT_IT_STATUS_LINES: tuple[str, ...] = (
 
 # Maps bale_tid -> list of next_questions from the last structured response
 _pending_questions: dict[str, list[str]] = {}
+# Maps bale_tid -> list of ExamQuestion for the active exam
+_pending_exams: dict[str, list] = {}
 
 
-def _format_structured_response(resp: StudentResponse) -> str:
-    """Convert a StudentResponse into a Bale-markdown formatted string."""
-    lines: list[str] = []
-    lines.append(f"*{resp.header}*")
-    lines.append("")
-    lines.append(resp.main_content)
-    if resp.key_points:
-        lines.append("")
-        lines.append("📌 *نکات کلیدی:*")
-        for point in resp.key_points:
-            lines.append(f"• {point}")
-    if resp.fun_fact:
-        lines.append("")
-        lines.append(f"💡 {resp.fun_fact}")
+def _format_main_response(resp: AgentResponse) -> str:
+    """Render the main body of an AgentResponse (no header, no exam questions)."""
+    lines: list[str] = [resp.main_content]
+
+    if resp.response_type == "teaching":
+        if resp.key_points:
+            lines += ["", "📌 *نکات کلیدی:*"]
+            lines += [f"• {p}" for p in resp.key_points]
+        if resp.fun_fact:
+            lines += ["", f"💡 {resp.fun_fact}"]
+
+    elif resp.response_type == "welcome":
+        if resp.fun_fact:
+            lines += ["", f"🔍 *تحلیل شخصیت:* {resp.fun_fact}"]
+
+    # exam / simple: main_content only here; questions sent separately
+
     return "\n".join(lines)
 
 
@@ -78,6 +82,17 @@ def _next_questions_keyboard(bale_tid: int, questions: list[str]) -> types.Inlin
     for i, q in enumerate(questions):
         markup.add(types.InlineKeyboardButton(q, callback_data=f"nq:{bale_tid}:{i}"))
     return markup
+
+
+def _exam_question_keyboard(bale_tid: int, q_idx: int, options: list[str]) -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+    for opt_idx, opt in enumerate(options):
+        markup.add(types.InlineKeyboardButton(opt, callback_data=f"eq:{bale_tid}:{q_idx}:{opt_idx}"))
+    return markup
+
+
+# Keep old name as alias so welcome.py import still works
+_format_structured_response = _format_main_response
 
 
 def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
@@ -92,30 +107,58 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
     def _send_answer(
         bale_tid: int,
-        answer: Union[StudentResponse, str],
+        answer: Union[AgentResponse, str],
         reply_to: types.Message,
         status_msg: types.Message | None,
     ) -> None:
         """Render and send the agent answer, replacing the status message if present."""
-        if isinstance(answer, StudentResponse):
-            _pending_questions[str(bale_tid)] = list(answer.next_questions)
-            body = _format_structured_response(answer)
-            body_md = markdown_to_bale_markdown(body)
-            markup = _next_questions_keyboard(bale_tid, answer.next_questions)
+        if isinstance(answer, AgentResponse):
+            body_md = markdown_to_bale_markdown(_format_main_response(answer))
 
-            if status_msg is not None:
-                try:
-                    bot.edit_message_text(
-                        body_md,
-                        chat_id=status_msg.chat.id,
-                        message_id=status_msg.message_id,
-                        parse_mode="Markdown",
-                        reply_markup=markup,
-                    )
-                    return
-                except Exception:
-                    pass
-            bot.send_message(reply_to.chat.id, body_md, parse_mode="Markdown", reply_markup=markup)
+            if answer.response_type == "exam":
+                # Main content replaces the status message (no next-question keyboard)
+                if status_msg is not None:
+                    try:
+                        bot.edit_message_text(
+                            body_md,
+                            chat_id=status_msg.chat.id,
+                            message_id=status_msg.message_id,
+                            parse_mode="Markdown",
+                        )
+                    except Exception:
+                        bot.send_message(reply_to.chat.id, body_md, parse_mode="Markdown")
+                else:
+                    bot.send_message(reply_to.chat.id, body_md, parse_mode="Markdown")
+
+                # Send each question as a separate message with option buttons
+                if answer.exam_questions:
+                    _pending_exams[str(bale_tid)] = list(answer.exam_questions)
+                    for q_idx, q in enumerate(answer.exam_questions):
+                        markup = _exam_question_keyboard(bale_tid, q_idx, q.options)
+                        bot.send_message(
+                            reply_to.chat.id,
+                            f"*سوال {q_idx + 1}:* {q.question}",
+                            parse_mode="Markdown",
+                            reply_markup=markup,
+                        )
+            else:
+                questions = list(answer.next_questions) if answer.next_questions else []
+                _pending_questions[str(bale_tid)] = questions
+                markup = _next_questions_keyboard(bale_tid, questions) if questions else None
+
+                if status_msg is not None:
+                    try:
+                        bot.edit_message_text(
+                            body_md,
+                            chat_id=status_msg.chat.id,
+                            message_id=status_msg.message_id,
+                            parse_mode="Markdown",
+                            reply_markup=markup,
+                        )
+                        return
+                    except Exception:
+                        pass
+                bot.send_message(reply_to.chat.id, body_md, parse_mode="Markdown", reply_markup=markup)
         else:
             # Plain-text fallback
             text_answer = answer if answer else (
@@ -272,12 +315,19 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 return
 
             question = questions[idx]
-            bot.answer_callback_query(call.id, "⏳ دارم جواب می‌دم...")
+            bot.answer_callback_query(call.id)
 
             if not call.message or not isinstance(call.message, types.Message):
                 return
 
-            origin_message: types.Message = call.message
+            chat_id = call.message.chat.id
+
+            # Show the question as a standalone message (simulates user typing it)
+            try:
+                question_msg = bot.send_message(chat_id, f"❓ {question}")
+            except Exception:
+                question_msg = call.message
+
             status_msg: list[types.Message | None] = [None]
 
             def _edit_status(text: str) -> None:
@@ -291,8 +341,8 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
             def on_thinking() -> None:
                 try:
-                    status_msg[0] = bot.send_message(
-                        origin_message.chat.id,
+                    status_msg[0] = bot.reply_to(
+                        question_msg,
                         random.choice(_THINKING_STATUS_LINES),
                     )
                 except Exception:
@@ -321,15 +371,74 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                     except Exception:
                         pass
                 bot.send_message(
-                    origin_message.chat.id,
+                    chat_id,
                     "⚡ انرژی سیستم یه لحظه افت کرد! دوباره بپرس تا با قدرت کامل جواب بدم. این دفعه حله! 🚀",
                 )
                 return
 
-            _send_answer(bale_tid, answer, origin_message, status_msg[0])
+            _send_answer(bale_tid, answer, question_msg, status_msg[0])
 
         except Exception as e:
             logger.error(f"Error in handle_next_question_callback: {e}", exc_info=True)
+            try:
+                bot.answer_callback_query(call.id, "خطایی پیش آمد!")
+            except Exception:
+                pass
+
+    @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("eq:"))
+    def handle_exam_answer_callback(call: types.CallbackQuery) -> None:
+        try:
+            if not call.data:
+                bot.answer_callback_query(call.id)
+                return
+
+            parts = call.data.split(":", 3)
+            if len(parts) != 4:
+                bot.answer_callback_query(call.id)
+                return
+
+            _, tid_str, q_idx_str, opt_idx_str = parts
+            bale_tid = int(tid_str)
+            q_idx = int(q_idx_str)
+            opt_idx = int(opt_idx_str)
+
+            exam_qs = _pending_exams.get(str(bale_tid), [])
+            if q_idx >= len(exam_qs):
+                bot.answer_callback_query(call.id, "سوال پیدا نشد!")
+                return
+
+            q = exam_qs[q_idx]
+            if opt_idx >= len(q.options):
+                bot.answer_callback_query(call.id, "گزینه نامعتبر!")
+                return
+
+            chosen = q.options[opt_idx]
+            is_correct = chosen.strip() == q.correct_answer.strip()
+
+            if is_correct:
+                bot.answer_callback_query(call.id, "✅ آفرین! پاسخ درسته!")
+                result_text = f"✅ *پاسخ درست!*\n📖 _{q.explanation}_"
+            else:
+                bot.answer_callback_query(call.id, "❌ اشتباه بود!")
+                result_text = (
+                    f"❌ *اشتباه!* گزینه انتخابی: _{chosen}_\n"
+                    f"✅ *پاسخ صحیح:* _{q.correct_answer}_\n"
+                    f"📖 _{q.explanation}_"
+                )
+
+            if call.message and isinstance(call.message, types.Message):
+                try:
+                    bot.edit_message_text(
+                        f"*سوال {q_idx + 1}:* {q.question}\n\n{result_text}",
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
+                        parse_mode="Markdown",
+                    )
+                except Exception:
+                    bot.send_message(call.message.chat.id, result_text, parse_mode="Markdown")
+
+        except Exception as e:
+            logger.error(f"Error in handle_exam_answer_callback: {e}", exc_info=True)
             try:
                 bot.answer_callback_query(call.id, "خطایی پیش آمد!")
             except Exception:

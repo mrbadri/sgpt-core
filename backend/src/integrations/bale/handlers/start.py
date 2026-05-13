@@ -6,15 +6,14 @@ from telebot import types
 
 from app.db.session import get_db_session
 from app.services import bale_user_service
-from app.settings import settings
-from integrations.bale.channel_check import run_channel_check
-from integrations.bale.get_profile import get_bale_profile_photo_url
 from integrations.bale.handlers.deps import BaleHandlerDeps, log_bale_incoming
+from integrations.bale.handlers.welcome import run_welcome_step
 
 
 def register_start_handler(deps: BaleHandlerDeps) -> None:
     bot = deps.bot
     logger = deps.logger
+    bridge = deps.agent_bridge
 
     @bot.message_handler(commands=["start"])
     def handle_start(message: types.Message) -> None:
@@ -28,12 +27,6 @@ def register_start_handler(deps: BaleHandlerDeps) -> None:
             text=getattr(message, "text", None),
         )
         try:
-            if uid and settings.bale_bot_token:
-                profile_url = get_bale_profile_photo_url(settings.bale_bot_token, uid)
-                print("==============================================")
-                print("======> profile_url:", profile_url)
-                print("==============================================")
-
             # Check if user is already linked
             linked_user = None
             if uid:
@@ -47,7 +40,7 @@ def register_start_handler(deps: BaleHandlerDeps) -> None:
                     logger.error(f"DB error in start handler: {db_err}", exc_info=True)
 
             if linked_user:
-                run_channel_check(bot, message, logger)
+                run_welcome_step(bot, message, logger, bridge)
                 return
 
             # Not linked → ask for contact

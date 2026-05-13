@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import threading
 from collections.abc import Callable
+from datetime import date
+from pathlib import Path
 from typing import Any, Union
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.schema import StreamEvent
 
-from app.agent.sample import StudentResponse
+from app.agent.prompts import (
+    ONBOARDING_PHOTO_LINE,
+    ONBOARDING_PROMPT_TEMPLATE,
+    PERSONALITY_NO_PHOTO,
+    PERSONALITY_WITH_PHOTO,
+)
+from app.agent.format_response import AgentResponse
 
 
 def _assistant_message_text(content: Any) -> str:
@@ -30,6 +40,20 @@ def _assistant_message_text(content: Any) -> str:
     return str(content)
 
 
+def _read_user_memory(bale_tid: int) -> str:
+    """Return the user's long-term memory file contents, or empty string if absent."""
+    mem_root = os.getenv("USER_MEMORIES_DIR", "").strip()
+    if not mem_root:
+        return ""
+    mem_path = Path(mem_root) / f"user_{bale_tid}.md"
+    if mem_path.exists():
+        try:
+            return mem_path.read_text(encoding="utf-8")
+        except Exception:
+            return ""
+    return ""
+
+
 class BaleAgentBridge:
     """Lazily builds the Graphiti deep agent and runs it with per-user thread ids."""
 
@@ -47,7 +71,7 @@ class BaleAgentBridge:
                 self._agent = build_graphiti_deep_agent(checkpointer=MemorySaver())
             return self._agent
 
-    def invoke_reply(self, bale_tid: int, text: str) -> Union[StudentResponse, str]:
+    def invoke_reply(self, bale_tid: int, text: str) -> Union[AgentResponse, str]:
         """Run the agent and return the structured response or last assistant text."""
         return self.invoke_reply_with_status(bale_tid, text)
 
@@ -58,63 +82,150 @@ class BaleAgentBridge:
         on_thinking: Callable[[], None] | None = None,
         on_searching: Callable[[], None] | None = None,
         on_got_it: Callable[[], None] | None = None,
-    ) -> Union[StudentResponse, str]:
-        """Run the agent via astream_events and fire status callbacks at key moments.
-
-        Returns a StudentResponse when the agent produces structured output,
-        otherwise falls back to the last assistant text string.
-        """
+    ) -> Union[AgentResponse, str]:
+        """Run the agent via astream_events and fire status callbacks at key moments."""
         agent = self._get_agent()
         cfg: RunnableConfig = {"configurable": {"thread_id": f"bale-{bale_tid}"}}
 
-        async def _stream() -> Union[StudentResponse, str]:
-            thinking_fired = False
-            searching_fired = False
-            got_it_fired = False
-            final_structured: StudentResponse | None = None
-            final_content: str = ""
+        # Prepend long-term memory if available
+        memory_contents = _read_user_memory(bale_tid)
+        if memory_contents:
+            user_content: Any = (
+                f"[حافظه بلندمدت کاربر]\n{memory_contents}\n[پایان حافظه]\n\n{text}"
+            )
+        else:
+            user_content = text
 
-            async for event in agent.astream_events(
-                {"messages": [{"role": "user", "content": text}]},
-                config=cfg,
-                version="v2",
-            ):
-                event: StreamEvent
-                kind: str = event["event"]
+        return asyncio.run(self._stream_agent(agent, cfg, user_content, on_thinking, on_searching, on_got_it))
 
-                if not thinking_fired and kind in ("on_chain_start", "on_chat_model_start"):
-                    thinking_fired = True
-                    if on_thinking:
-                        on_thinking()
+    async def _stream_agent(
+        self,
+        agent: Any,
+        cfg: RunnableConfig,
+        user_content: Any,
+        on_thinking: Callable[[], None] | None,
+        on_searching: Callable[[], None] | None,
+        on_got_it: Callable[[], None] | None,
+    ) -> Union[AgentResponse, str]:
+        thinking_fired = False
+        searching_fired = False
+        got_it_fired = False
+        final_structured: AgentResponse | None = None
+        final_content: str = ""
 
-                elif kind == "on_tool_start":
-                    if not searching_fired:
-                        searching_fired = True
-                        if on_searching:
-                            on_searching()
+        async for event in agent.astream_events(
+            {"messages": [{"role": "user", "content": user_content}]},
+            config=cfg,
+            version="v2",
+        ):
+            event: StreamEvent
+            kind: str = event["event"]
 
-                elif kind == "on_tool_end":
-                    if not got_it_fired:
-                        got_it_fired = True
-                        if on_got_it:
-                            on_got_it()
+            if not thinking_fired and kind in ("on_chain_start", "on_chat_model_start"):
+                thinking_fired = True
+                if on_thinking:
+                    on_thinking()
 
-                elif kind == "on_chain_end":
-                    output = event.get("data", {}).get("output")
-                    if isinstance(output, dict):
-                        sr = output.get("structured_response")
-                        if isinstance(sr, StudentResponse):
-                            final_structured = sr
-                        elif "messages" in output:
-                            msgs = output["messages"]
-                            if msgs:
-                                last = msgs[-1]
+            elif kind == "on_tool_start":
+                if not searching_fired:
+                    searching_fired = True
+                    if on_searching:
+                        on_searching()
+
+            elif kind == "on_tool_end":
+                if not got_it_fired:
+                    got_it_fired = True
+                    if on_got_it:
+                        on_got_it()
+
+            elif kind == "on_chain_end":
+                output = event.get("data", {}).get("output")
+                if isinstance(output, dict):
+                    sr = output.get("structured_response")
+                    if isinstance(sr, AgentResponse):
+                        final_structured = sr
+                    elif isinstance(sr, dict):
+                        try:
+                            final_structured = AgentResponse(**sr)
+                        except Exception:
+                            pass
+                    elif "messages" in output:
+                        msgs = output["messages"]
+                        if msgs:
+                            try:
+                                last = msgs[-1] if isinstance(msgs, list) else list(msgs)[-1]
+                            except (TypeError, IndexError):
+                                last = None
+                            if last is not None:
                                 text_candidate = _assistant_message_text(
                                     getattr(last, "content", last)
                                 ).strip()
                                 if text_candidate:
                                     final_content = text_candidate
 
-            return final_structured if final_structured is not None else final_content
+        if final_structured is not None:
+            return final_structured
 
-        return asyncio.run(_stream())
+        # Agent sometimes returns structured data as a plain JSON string — try to parse it.
+        if final_content:
+            try:
+                data = json.loads(final_content)
+                if isinstance(data, dict) and "response_type" in data:
+                    return AgentResponse(**data)
+            except Exception:
+                pass
+
+        return final_content
+
+    def invoke_welcome(
+        self,
+        bale_tid: int,
+        first_name: str,
+        profile_url: str | None,
+    ) -> Union[AgentResponse, str]:
+        """Run the deep agent for onboarding. Returns full AgentResponse (or fallback str)."""
+        agent = self._get_agent()
+        cfg: RunnableConfig = {"configurable": {"thread_id": f"bale-welcome-{bale_tid}"}}
+
+        prompt = ONBOARDING_PROMPT_TEMPLATE.format(
+            first_name=first_name or "دوست",
+            photo_line=ONBOARDING_PHOTO_LINE if profile_url else "",
+            personality_instruction=PERSONALITY_WITH_PHOTO if profile_url else PERSONALITY_NO_PHOTO,
+        )
+
+        if profile_url:
+            user_content: Any = [
+                {"type": "image_url", "image_url": {"url": profile_url}},
+                {"type": "text", "text": prompt},
+            ]
+        else:
+            user_content = prompt
+
+        async def _run() -> Union[AgentResponse, str]:
+            return await self._stream_agent(agent, cfg, user_content, None, None, None)
+
+        return asyncio.run(_run())
+
+    def save_user_memory(
+        self,
+        bale_tid: int,
+        first_name: str,
+        personality_notes: str,
+    ) -> None:
+        """Write the user's long-term memory file to USER_MEMORIES_DIR."""
+        mem_root = os.getenv("USER_MEMORIES_DIR", "").strip()
+        if not mem_root:
+            return
+        try:
+            path = Path(mem_root) / f"user_{bale_tid}.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            today = date.today().isoformat()
+            content = (
+                f"# پروفایل کاربر\n\n"
+                f"**نام:** {first_name}\n"
+                f"**تاریخ ثبت‌نام:** {today}\n\n"
+                f"## شخصیت و سبک یادگیری\n{personality_notes}\n"
+            )
+            path.write_text(content, encoding="utf-8")
+        except Exception:
+            pass

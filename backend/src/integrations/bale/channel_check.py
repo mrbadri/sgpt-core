@@ -17,10 +17,22 @@ def check_channel_membership(bot: TeleBot, user_id: int) -> list[str]:
     for channel in settings.bale_required_channels:
         try:
             member = bot.get_chat_member(channel, user_id)
+            print("===============================")
+            print("=====>===>member:", member)
+            print("===============================")
             if member.status not in _MEMBER_STATUSES:
                 missing.append(channel)
-        except Exception:
-            missing.append(channel)
+        except Exception as e:
+            err = str(e)
+            if "403" in err or "permission_denied" in err:
+                # Bot is not an admin of the channel — cannot verify membership.
+                # Add the bot as a channel administrator to resolve this.
+                logging.getLogger(__name__).warning(
+                    f"Bot lacks admin access to {channel}; skipping membership check"
+                )
+            else:
+                print("Error ===========------0-------->" , e)
+                missing.append(channel)
     return missing
 
 
