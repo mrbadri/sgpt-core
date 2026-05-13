@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random
 
 from telebot import TeleBot, types
 
@@ -36,7 +37,30 @@ def run_welcome_step(
         if settings.bale_bot_token:
             profile_url = get_bale_profile_photo_url(settings.bale_bot_token, uid)
 
+        _WELCOME_LOADING_LINES = (
+            f"✨ {first_name}! داری وارد یه تجربه یادگیری متفاوت می‌شی... آماده‌ای؟ 🚀",
+            f"🎯 {first_name} جان، یه لحظه صبر کن — داری یه دستیار هوشمند شخصی پیدا می‌کنی! 🧠",
+            f"🌟 خوش اومدی {first_name}! دارم یه مسیر یادگیری مخصوص خودت طراحی می‌کنم...",
+            f"🔥 {first_name}، آماده‌باش! چیز باحالی داره بارگذاری می‌شه... ⚡️",
+            f"💫 لحظه‌ای صبر کن {first_name} — داری با یه هوش مصنوعی آشنا می‌شی که واقعاً می‌فهمه! 🤖",
+        )
+
+        loading_msg: types.Message | None = None
+        try:
+            loading_msg = bot.reply_to(
+                message,
+                random.choice(_WELCOME_LOADING_LINES),
+            )
+        except Exception:
+            pass
+
         result = bridge.invoke_welcome(uid, first_name, profile_url)
+
+        if loading_msg is not None:
+            try:
+                bot.delete_message(loading_msg.chat.id, loading_msg.message_id)
+            except Exception:
+                pass
 
         remove_kb = types.ReplyKeyboardRemove()
 

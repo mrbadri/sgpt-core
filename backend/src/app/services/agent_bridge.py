@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import threading
 from collections.abc import Callable
 from datetime import date
@@ -21,6 +20,7 @@ from app.agent.prompts import (
     PERSONALITY_WITH_PHOTO,
 )
 from app.agent.format_response import AgentResponse
+from app.settings import settings
 
 
 def _assistant_message_text(content: Any) -> str:
@@ -42,7 +42,7 @@ def _assistant_message_text(content: Any) -> str:
 
 def _read_user_memory(bale_tid: int) -> str:
     """Return the user's long-term memory file contents, or empty string if absent."""
-    mem_root = os.getenv("USER_MEMORIES_DIR", "").strip()
+    mem_root = settings.user_memories_dir.strip()
     if not mem_root:
         return ""
     mem_path = Path(mem_root) / f"user_{bale_tid}.md"
@@ -223,7 +223,7 @@ class BaleAgentBridge:
         personality_notes: str,
     ) -> None:
         """Write the user's long-term memory file to USER_MEMORIES_DIR."""
-        mem_root = os.getenv("USER_MEMORIES_DIR", "").strip()
+        mem_root = settings.user_memories_dir.strip()
         if not mem_root:
             return
         try:

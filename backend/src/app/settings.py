@@ -46,5 +46,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "json"
 
+    # User memories
+    user_memories_dir: str = "/app/user_memories"
+
 
 settings = Settings()

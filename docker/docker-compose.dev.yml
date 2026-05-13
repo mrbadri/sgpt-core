@@ -22,6 +22,7 @@ services:
     volumes:
       - ../backend:/app
       - /app/.venv
+      - user_memories:/app/user_memories
     ports:
       - "8000:8000"
     env_file:
@@ -33,6 +34,7 @@ services:
       - LOG_LEVEL=DEBUG
       - LOG_FORMAT=text
       - PYTHONPATH=/app/src
+      - USER_MEMORIES_DIR=/app/user_memories
     depends_on:
       db:
         condition: service_healthy
@@ -66,3 +68,4 @@ services:
 volumes:
   postgres_data:
   pgadmin_data:
+  user_memories:
