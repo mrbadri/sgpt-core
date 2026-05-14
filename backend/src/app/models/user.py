@@ -1,9 +1,14 @@
 """User model."""
 
+from typing import TYPE_CHECKING
+
 import sqlalchemy as sa
-from sqlmodel import Field
+from sqlmodel import Field, Relationship
 
 from app.models.base import BaseDBModelUUID
+
+if TYPE_CHECKING:
+    from app.models.message import BaleMessage
 
 
 class User(BaseDBModelUUID, table=True):
@@ -31,6 +36,8 @@ class User(BaseDBModelUUID, table=True):
         default=None,
         nullable=True,
     )
+
+    messages: list["BaleMessage"] = Relationship(back_populates="user")
 
     def __repr__(self) -> str:
         return f"User(id={self.id}, mobile={self.mobile}, bale_user_id={self.bale_user_id})"
