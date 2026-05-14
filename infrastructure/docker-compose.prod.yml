@@ -45,6 +45,7 @@ services:
     working_dir: /app
     networks:
       - backend_network
+      - proxy
     deploy:
       resources:
         limits:
@@ -75,6 +76,7 @@ services:
     restart: unless-stopped
     networks:
       - backend_network
+      - proxy
     deploy:
       resources:
         limits:
@@ -164,3 +166,5 @@ volumes:
 networks:
   backend_network:
     driver: bridge
+  proxy:
+    external: true
