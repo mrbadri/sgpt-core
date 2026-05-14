@@ -118,6 +118,7 @@ services:
     restart: unless-stopped
     networks:
       - backend_network
+      - proxy
 
   # FalkorDB Browser UI: localhost:3379 → port 3000 inside container. With
   # `--requirepass`, use Redis ACL username `default` and this password — not host `falkordb`.
@@ -143,6 +144,7 @@ services:
       start_period: 30s
     networks:
       - backend_network
+      - proxy
     logging:
       driver: "json-file"
       options:
