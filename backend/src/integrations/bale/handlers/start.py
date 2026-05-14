@@ -26,23 +26,24 @@ def register_start_handler(deps: BaleHandlerDeps) -> None:
             username=uname,
             text=getattr(message, "text", None),
         )
-        if uid:
-            deps.log_message(uid, "in", "command", "/start", message.message_id)
         try:
-            # Check if user is already linked
             linked_user = None
             if uid:
                 try:
                     db = get_db_session()
                     try:
-                        linked_user = bale_user_service.fetch_user_by_bale_user_id(db, uid)
+                        linked_user = bale_user_service.fetch_user_by_identity(db, "bale", str(uid))
                     finally:
                         db.close()
                 except Exception as db_err:
                     logger.error(f"DB error in start handler: {db_err}", exc_info=True)
 
+            if uid:
+                user_id = linked_user.id if linked_user else None
+                deps.log_message(user_id, "bale", "in", "command", "/start", message.message_id)
+
             if linked_user:
-                run_welcome_step(bot, message, logger, bridge)
+                run_welcome_step(bot, message, logger, bridge, linked_user.id)
                 return
 
             # Not linked → ask for contact
@@ -57,19 +58,13 @@ def register_start_handler(deps: BaleHandlerDeps) -> None:
             )
             keyboard.add(contact_button)
             bot.reply_to(message, greeting, reply_markup=keyboard)
-            if uid:
-                deps.log_message(uid, "out", "text", greeting)
+            deps.log_message(None, "bale", "out", "text", greeting)
 
-            logger.info(
-                f"/start received | user_id={uid} "
-                f"chat_id={message.chat.id}"
-            )
+            logger.info(f"/start received | user_id={uid} chat_id={message.chat.id}")
 
         except Exception as e:
             logger.error(f"Error handling start command: {e}", exc_info=True)
             try:
-                bot.reply_to(
-                    message, "متأسفانه خطایی رخ داد. لطفاً دوباره تلاش کنید."
-                )
+                bot.reply_to(message, "متأسفانه خطایی رخ داد. لطفاً دوباره تلاش کنید.")
             except Exception:
                 pass

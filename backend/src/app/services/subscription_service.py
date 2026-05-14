@@ -18,14 +18,14 @@ def _free_expiry() -> datetime:
     return datetime(9999, 1, 1)
 
 
-def get_or_create_free(db: Session, bale_user_id: int) -> UserSubscription:
+def get_or_create_free(db: Session, user_id: str) -> UserSubscription:
     """Return the user's subscription row, creating a free one if absent."""
     sub = db.exec(
-        select(UserSubscription).where(UserSubscription.bale_user_id == bale_user_id)
+        select(UserSubscription).where(UserSubscription.user_id == user_id)
     ).first()
     if sub is None:
         sub = UserSubscription(
-            bale_user_id=bale_user_id,
+            user_id=user_id,
             plan_key="free",
             duration_months=0,
             started_at=_now(),
@@ -39,15 +39,14 @@ def get_or_create_free(db: Session, bale_user_id: int) -> UserSubscription:
     return sub
 
 
-def check_rate_limit(db: Session, bale_user_id: int) -> tuple[bool, UserSubscription]:
+def check_rate_limit(db: Session, user_id: str) -> tuple[bool, UserSubscription]:
     """Return (allowed, subscription).
 
     If a paid plan has expired, it is silently reset to free limits before checking.
     """
-    sub = get_or_create_free(db, bale_user_id)
+    sub = get_or_create_free(db, user_id)
     now = _now()
 
-    # Paid plan expired → reset to free limits (keep row, just downgrade)
     if sub.plan_key != "free" and sub.expires_at < now:
         sub.plan_key = "free"
         sub.duration_months = 0
@@ -62,11 +61,11 @@ def check_rate_limit(db: Session, bale_user_id: int) -> tuple[bool, UserSubscrip
     return allowed, sub
 
 
-def record_usage(db: Session, bale_user_id: int, cost_usd: float) -> None:
+def record_usage(db: Session, user_id: str, cost_usd: float) -> None:
     """Add cost_usd to the user's accumulated usage."""
     if cost_usd <= 0:
         return
-    sub = get_or_create_free(db, bale_user_id)
+    sub = get_or_create_free(db, user_id)
     sub.used_usd = round(sub.used_usd + cost_usd, 6)
     db.add(sub)
     db.commit()
@@ -74,13 +73,13 @@ def record_usage(db: Session, bale_user_id: int, cost_usd: float) -> None:
 
 def activate_plan(
     db: Session,
-    bale_user_id: int,
+    user_id: str,
     plan_key: str,
     duration_months: int,
     paid_irr: int = 0,
 ) -> UserSubscription:
     """Activate or upgrade a paid plan. Resets used_usd to 0, accumulates total_paid_irr."""
-    sub = get_or_create_free(db, bale_user_id)
+    sub = get_or_create_free(db, user_id)
     now = _now()
     sub.plan_key = plan_key
     sub.duration_months = duration_months

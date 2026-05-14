@@ -5,8 +5,9 @@ from app.models.base import (
     BaseDBModelUUID,
     BaseDBModelWithSoftDelete,
 )
-from app.models.message import BaleMessage
-from app.models.payment import BalePayment
+from app.models.identity import UserIdentity
+from app.models.message import BaleMessage, Message
+from app.models.payment import BalePayment, Payment
 from app.models.subscription import UserSubscription
 from app.models.user import User
 
@@ -15,7 +16,10 @@ __all__ = [
     "BaseDBModel",
     "BaseDBModelUUID",
     "BaseDBModelWithSoftDelete",
+    "UserIdentity",
+    "Message",
     "BaleMessage",
+    "Payment",
     "BalePayment",
     "UserSubscription",
     "User",

@@ -1,24 +1,28 @@
-"""Payment service — persists successful Bale payments."""
+"""Payment service — persists payment transactions."""
 
 from __future__ import annotations
 
 from sqlmodel import Session
 
-from app.models.payment import BalePayment
+from app.models.payment import Payment
 
 
 def record_payment(
     db: Session,
     *,
-    bale_user_id: int,
+    user_id: str,
+    provider: str,
+    status: str = "success",
     plan_key: str,
     amount: int,
     currency: str,
     invoice_payload: str,
     provider_payment_charge_id: str,
-) -> BalePayment:
-    payment = BalePayment(
-        bale_user_id=bale_user_id,
+) -> Payment:
+    payment = Payment(
+        user_id=user_id,
+        provider=provider,
+        status=status,
         plan_key=plan_key,
         amount=amount,
         currency=currency,

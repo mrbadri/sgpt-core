@@ -44,12 +44,12 @@ def _assistant_message_text(content: Any) -> str:
     return str(content)
 
 
-def _read_user_memory(bale_tid: int) -> str:
+def _read_user_memory(user_id: str) -> str:
     """Return the user's long-term memory file contents, or empty string if absent."""
     mem_root = settings.user_memories_dir.strip()
     if not mem_root:
         return ""
-    mem_path = Path(mem_root) / f"user_{bale_tid}.md"
+    mem_path = Path(mem_root) / f"user_{user_id}.md"
     if mem_path.exists():
         try:
             return mem_path.read_text(encoding="utf-8")
@@ -59,7 +59,7 @@ def _read_user_memory(bale_tid: int) -> str:
 
 
 # Exam answer records queued to be injected into the next agent call (no round-trip needed).
-_pending_exam_context: dict[int, list[str]] = {}
+_pending_exam_context: dict[str, list[str]] = {}
 
 
 class BaleAgentBridge:
@@ -79,17 +79,17 @@ class BaleAgentBridge:
                 self._agent = build_graphiti_deep_agent(checkpointer=MemorySaver())
             return self._agent
 
-    def add_exam_context(self, bale_tid: int, entry: str) -> None:
+    def add_exam_context(self, user_id: str, entry: str) -> None:
         """Record an exam answer silently — injected into the next agent call."""
-        _pending_exam_context.setdefault(bale_tid, []).append(entry)
+        _pending_exam_context.setdefault(user_id, []).append(entry)
 
-    def invoke_reply(self, bale_tid: int, text: str) -> AgentResult:
+    def invoke_reply(self, user_id: str, text: str) -> AgentResult:
         """Run the agent and return (answer, cost_usd)."""
-        return self.invoke_reply_with_status(bale_tid, text)
+        return self.invoke_reply_with_status(user_id, text)
 
     def invoke_reply_with_status(
         self,
-        bale_tid: int,
+        user_id: str,
         text: str,
         on_thinking: Callable[[], None] | None = None,
         on_searching: Callable[[], None] | None = None,
@@ -97,14 +97,14 @@ class BaleAgentBridge:
     ) -> AgentResult:
         """Run the agent via astream_events and fire status callbacks at key moments."""
         agent = self._get_agent()
-        cfg: RunnableConfig = {"configurable": {"thread_id": f"bale-{bale_tid}"}}
+        cfg: RunnableConfig = {"configurable": {"thread_id": f"user-{user_id}"}}
 
         # Prepend long-term memory if available
-        memory_contents = _read_user_memory(bale_tid)
+        memory_contents = _read_user_memory(user_id)
         prefix = f"[حافظه بلندمدت کاربر]\n{memory_contents}\n[پایان حافظه]\n\n" if memory_contents else ""
 
         # Consume any pending exam context and prepend it
-        exam_entries = _pending_exam_context.pop(bale_tid, [])
+        exam_entries = _pending_exam_context.pop(user_id, [])
         if exam_entries:
             prefix += "[نتایج آزمون این جلسه]\n" + "\n".join(exam_entries) + "\n[پایان نتایج]\n\n"
 
@@ -216,13 +216,13 @@ class BaleAgentBridge:
 
     def invoke_welcome(
         self,
-        bale_tid: int,
+        user_id: str,
         first_name: str,
         profile_url: str | None,
     ) -> AgentResult:
         """Run the deep agent for onboarding. Returns (AgentResponse | str, cost_usd)."""
         agent = self._get_agent()
-        cfg: RunnableConfig = {"configurable": {"thread_id": f"bale-welcome-{bale_tid}"}}
+        cfg: RunnableConfig = {"configurable": {"thread_id": f"user-welcome-{user_id}"}}
 
         prompt = ONBOARDING_PROMPT_TEMPLATE.format(
             first_name=first_name or "دوست",
@@ -245,7 +245,7 @@ class BaleAgentBridge:
 
     def save_user_memory(
         self,
-        bale_tid: int,
+        user_id: str,
         first_name: str,
         personality_notes: str,
     ) -> None:
@@ -254,7 +254,7 @@ class BaleAgentBridge:
         if not mem_root:
             return
         try:
-            path = Path(mem_root) / f"user_{bale_tid}.md"
+            path = Path(mem_root) / f"user_{user_id}.md"
             path.parent.mkdir(parents=True, exist_ok=True)
             today = date.today().isoformat()
             content = (

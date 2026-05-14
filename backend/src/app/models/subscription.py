@@ -13,11 +13,11 @@ from app.models.base import BaseDBModelUUID
 class UserSubscription(BaseDBModelUUID, table=True):
     __tablename__ = "user_subscription"  # type: ignore[assignment]
 
-    bale_user_id: int = Field(
+    user_id: str = Field(
         nullable=False,
+        foreign_key="user.id",
         index=True,
         unique=True,
-        sa_type=sa.BigInteger,
     )
     plan_key: str = Field(nullable=False, max_length=16)       # "free"|"basic"|"pro"
     duration_months: int = Field(nullable=False, default=0)    # 0 = free (no expiry)
@@ -25,11 +25,11 @@ class UserSubscription(BaseDBModelUUID, table=True):
     expires_at: datetime = Field(nullable=False)               # year 9999 for free
     budget_usd: float = Field(nullable=False, default=0.0)
     used_usd: float = Field(nullable=False, default=0.0)
-    total_paid_irr: int = Field(nullable=False, default=0)  # cumulative IRR paid across all activations
+    total_paid_irr: int = Field(nullable=False, default=0)
 
     def __repr__(self) -> str:
         return (
-            f"UserSubscription(user={self.bale_user_id}, plan={self.plan_key}, "
+            f"UserSubscription(user_id={self.user_id}, plan={self.plan_key}, "
             f"used={self.used_usd:.4f}/{self.budget_usd}, "
             f"paid={self.total_paid_irr:,} IRR, expires={self.expires_at.date()})"
         )

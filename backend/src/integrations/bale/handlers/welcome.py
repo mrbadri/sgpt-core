@@ -24,18 +24,16 @@ def run_welcome_step(
     message: types.Message,
     logger: logging.Logger,
     bridge: BaleAgentBridge,
+    user_id: str,
 ) -> None:
     """Fetch profile photo, run onboarding agent, display full response, save memory."""
-    uid = message.from_user.id if message.from_user else None
-    if uid is None:
-        return
-
+    uid_int = message.from_user.id if message.from_user else None
     first_name = (message.from_user.first_name or "") if message.from_user else ""
 
     try:
         profile_url: str | None = None
-        if settings.bale_bot_token:
-            profile_url = get_bale_profile_photo_url(settings.bale_bot_token, uid)
+        if settings.bale_bot_token and uid_int:
+            profile_url = get_bale_profile_photo_url(settings.bale_bot_token, uid_int)
 
         _WELCOME_LOADING_LINES = (
             f"✨ {first_name}! داری وارد یه تجربه یادگیری متفاوت می‌شی... آماده‌ای؟ 🚀",
@@ -47,14 +45,11 @@ def run_welcome_step(
 
         loading_msg: types.Message | None = None
         try:
-            loading_msg = bot.reply_to(
-                message,
-                random.choice(_WELCOME_LOADING_LINES),
-            )
+            loading_msg = bot.reply_to(message, random.choice(_WELCOME_LOADING_LINES))
         except Exception:
             pass
 
-        result, _welcome_cost = bridge.invoke_welcome(uid, first_name, profile_url)
+        result, _welcome_cost = bridge.invoke_welcome(user_id, first_name, profile_url)
 
         if loading_msg is not None:
             try:
@@ -65,34 +60,26 @@ def run_welcome_step(
         remove_kb = types.ReplyKeyboardRemove()
 
         if isinstance(result, AgentResponse):
-            # Save fun_fact (personality analysis) to long-term memory
-            bridge.save_user_memory(uid, first_name, result.fun_fact or "")
+            bridge.save_user_memory(user_id, first_name, result.fun_fact or "")
 
-            # Format and send exactly like deep_chat does (personality visible via 💡 fun_fact)
             questions = list(result.next_questions) if result.next_questions else []
-            _pending_questions[str(uid)] = questions
+            _pending_questions[user_id] = questions
             body = _format_structured_response(result)
             body_md = markdown_to_bale_markdown(body)
-            markup = _next_questions_keyboard(uid, questions) if questions else None
+            markup = _next_questions_keyboard(user_id, questions) if questions else None
 
-            # First message removes the contact keyboard, shows the greeting + personality
             bot.reply_to(message, body_md, reply_markup=remove_kb, parse_mode="Markdown")
-            # Second message attaches the inline suggested-questions keyboard
             if questions:
-                bot.send_message(
-                    message.chat.id,
-                    "💬 سوال‌های پیشنهادی:",
-                    reply_markup=markup,
-                )
+                bot.send_message(message.chat.id, "💬 سوال‌های پیشنهادی:", reply_markup=markup)
         else:
-            bridge.save_user_memory(uid, first_name, "")
+            bridge.save_user_memory(user_id, first_name, "")
             greeting = result or f"سلام {first_name}! به SGPT 1 خوش اومدی 🎉"  # type: ignore[arg-type]
             bot.reply_to(message, greeting, reply_markup=remove_kb)
 
-        logger.info(f"Welcome step complete | user_id={uid}")
+        logger.info(f"Welcome step complete | user_id={user_id}")
 
     except Exception as e:
-        logger.error(f"Welcome step error | user_id={uid}: {e}", exc_info=True)
+        logger.error(f"Welcome step error | user_id={user_id}: {e}", exc_info=True)
         try:
             bot.reply_to(
                 message,

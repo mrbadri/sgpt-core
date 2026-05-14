@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
 from app.main import app
-from app.models import User  # noqa: F401 — register User metadata for create_all
+from app.models import User, UserIdentity, Message, Payment, UserSubscription  # noqa: F401 — register all models
 
 
 def _test_database_url() -> str:

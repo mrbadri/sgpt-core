@@ -8,7 +8,7 @@
 .PHONY: help dev-up dev-down dev-down-v dev-build dev-logs dev-restart \
 prod-up prod-down prod-down-v prod-build prod-logs prod-restart \
 clean ps shell shell-backend shell-db migrate migrate-create \
-migrate-current migrate-history migrate-downgrade test test-unit \
+migrate-current migrate-history migrate-downgrade migrate-upgrade test test-unit \
 test-integration test-users dev-logs-web dev-restart-web dev-build-web \
 shell-web prod-logs-web prod-restart-web prod-build-web shell-web-prod \
 frontend-install frontend-dev frontend-build frontend-lint frontend-typecheck \
@@ -32,7 +32,7 @@ help: ## Show this help message
 	@echo ""
 	@echo "Quick Start (Dev Workflow):"
 	@echo "  1. make dev-up      # Start db + backend + web (Next.js :3000, API :8000)"
-	@echo "  2. make migrate     # Create tables (required on first run!)"
+	@echo "  2. make migrate     # Apply migrations (first run; starts db via compose if needed)"
 	@echo "  3. Use the bot      # Data will be saved to bot_users table"
 	@echo "  4. Open http://localhost:3000 for the marketing web app (optional)"
 	@echo ""
@@ -78,7 +78,7 @@ help: ## Show this help message
 	@echo "  db-restore-prod Restore PostgreSQL from a Gitea backup release (prod)"
 	@echo ""
 	@echo "Migration Commands:"
-	@echo "  migrate         Run database migrations (dev) - upgrade to head"
+	@echo "  migrate         Run database migrations (dev) - upgrade to head (starts db if needed)"
 	@echo "  migrate-create  Create new migration (dev) - usage: make migrate-create MESSAGE='description'"
 	@echo "  migrate-current Show current migration revision (dev)"
 	@echo "  migrate-history Show migration history (dev)"
@@ -228,7 +228,7 @@ frontend-typecheck: ## Typecheck frontend (Turbo)
 
 # Database commands
 db-migrate-dev: ## Run database migrations (dev)
-	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) exec backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini upgrade head"
+	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) run --rm -T backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini upgrade head"
 
 db-migrate-prod: ## Run database migrations (prod)
 	cd $(ROOT_DIR) && docker-compose -f $(PROD_COMPOSE) exec backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini upgrade head"
@@ -246,32 +246,32 @@ db-restore-dev: ## Restore PostgreSQL from a Gitea backup release → developmen
 db-restore-prod: ## Restore PostgreSQL from a Gitea backup release → production (interactive)
 	@$(ROOT_DIR)/infrastructure/scripts/restore-db.sh prod
 
-# Migration commands (aliases for convenience)
+# Migration commands (aliases for convenience; use `run` so db/backend need not already be up)
 migrate: ## Run database migrations (dev) - upgrade to head
-	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) exec backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini upgrade head"
+	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) run --rm -T backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini upgrade head"
 
 migrate-create: ## Create new migration (dev) - usage: make migrate-create MESSAGE='description'
 	@if [ -z "$(MESSAGE)" ]; then \
 		echo "Error: MESSAGE is required. Usage: make migrate-create MESSAGE='your migration description'"; \
 		exit 1; \
 	fi
-	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) exec backend bash -c "cd /app && export PYTHONPATH=/app/src:\$$PYTHONPATH && uv run alembic -c alembic.ini revision --autogenerate -m '$(MESSAGE)'"
+	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) run --rm -T backend bash -c "cd /app && export PYTHONPATH=/app/src:\$$PYTHONPATH && uv run alembic -c alembic.ini revision --autogenerate -m '$(MESSAGE)'"
 
 migrate-current: ## Show current migration revision (dev)
-	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) exec backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini current"
+	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) run --rm -T backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini current"
 
 migrate-history: ## Show migration history (dev)
-	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) exec backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini history"
+	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) run --rm -T backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini history"
 
 migrate-downgrade: ## Downgrade one revision (dev)
-	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) exec backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini downgrade -1"
+	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) run --rm -T backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini downgrade -1"
 
 migrate-upgrade: ## Upgrade to specific revision (dev) - usage: make migrate-upgrade REVISION='revision_id'
 	@if [ -z "$(REVISION)" ]; then \
 		echo "Error: REVISION is required. Usage: make migrate-upgrade REVISION='revision_id'"; \
 		exit 1; \
 	fi
-	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) exec backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini upgrade $(REVISION)"
+	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) run --rm -T backend bash -c "cd /app && PYTHONPATH=/app/src uv run alembic -c alembic.ini upgrade $(REVISION)"
 
 # Test commands
 test: ## Run all tests (dev)

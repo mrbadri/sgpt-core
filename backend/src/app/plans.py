@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 PLAN_CONFIG: dict[str, dict] = {
-    "free":  {"label": "رایگان 🆓",   "budget_usd": 0.2},
+    "free":  {"label": "رایگان 🆓",   "budget_usd": 0.02},
     "basic": {"label": "پایه 🥈",     "budget_usd": 2.00},
     "pro":   {"label": "حرفه‌ای 🥇",  "budget_usd": 8.00},
 }

@@ -33,8 +33,6 @@ def register_contact_handler(deps: BaleHandlerDeps) -> None:
                 phone_hint=phone_hint,
                 message_id=message.message_id,
             )
-            if uid:
-                deps.log_message(uid, "in", "contact", phone_hint, message.message_id)
 
             mobile = bale_user_service.normalize_mobile_from_contact(pn)
             if mobile is None:
@@ -46,6 +44,7 @@ def register_contact_handler(deps: BaleHandlerDeps) -> None:
                 bot.reply_to(message, "شناسه کاربر در دسترس نیست. لطفاً دوباره تلاش کنید.")
                 return
 
+            user_id: str | None = None
             db_error: str | None = None
             try:
                 db = get_db_session()
@@ -53,11 +52,11 @@ def register_contact_handler(deps: BaleHandlerDeps) -> None:
                     kind, user = bale_user_service.commit_user_for_bale_contact(
                         db, mobile, int(bale_tid)
                     )
+                    user_id = user.id
                     logger.info(
-                        f"Contact {kind} | user_id={bale_tid} mobile={mobile} db_id={user.id}"
+                        f"Contact {kind} | bale_tid={bale_tid} mobile={mobile} user_id={user_id}"
                     )
-                    # Ensure a free subscription row exists for every new (and re-linked) user
-                    subscription_service.get_or_create_free(db, int(bale_tid))
+                    subscription_service.get_or_create_free(db, user_id)
                 except Exception as db_err:
                     db.rollback()
                     db_error = "متأسفانه در ثبت اطلاعات خطایی رخ داد. لطفاً دوباره تلاش کنید."
@@ -68,11 +67,13 @@ def register_contact_handler(deps: BaleHandlerDeps) -> None:
                 db_error = "متأسفانه در اتصال به پایگاه داده خطایی رخ داد."
                 logger.error(f"Error creating DB session: {session_err}", exc_info=True)
 
+            deps.log_message(user_id, "bale", "in", "contact", phone_hint, message.message_id)
+
             if db_error:
                 bot.reply_to(message, db_error)
                 return
 
-            run_welcome_step(bot, message, logger, bridge)
+            run_welcome_step(bot, message, logger, bridge, user_id)
 
         except Exception as e:
             logger.error(f"Error handling contact: {e}", exc_info=True)

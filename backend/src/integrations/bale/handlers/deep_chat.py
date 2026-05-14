@@ -1,4 +1,4 @@
-"""Plain text messages → deep agent for linked Bale users."""
+"""Plain text messages → deep agent for linked users."""
 
 from __future__ import annotations
 
@@ -52,12 +52,10 @@ _GOT_IT_STATUS_LINES: tuple[str, ...] = (
     "🎈 تمومه! برو بریم برای دیدن جواب...",
 )
 
-# Maps bale_tid -> list of next_questions from the last structured response
+# Maps user_id -> list of next_questions from the last structured response
 _pending_questions: dict[str, list[str]] = {}
-# Maps bale_tid -> list of ExamQuestion for the active exam
+# Maps user_id -> list of ExamQuestion for the active exam
 _pending_exams: dict[str, list] = {}
-
-# aa-uSNEaXREh8ZEi3y0pU2EIs1TFd3LW3GMThkBlGdaBWVn4zhB
 
 
 def _rate_limit_keyboard() -> types.InlineKeyboardMarkup:
@@ -104,19 +102,17 @@ def _format_main_response(resp: AgentResponse) -> str:
         if resp.fun_fact:
             lines += ["", f"🔍 *تحلیل شخصیت:* {resp.fun_fact}"]
 
-    # exam / simple: main_content only here; questions sent separately
-
     return "\n".join(lines)
 
 
 _BTN_MAX = 38
 
 
-def _next_questions_keyboard(bale_tid: int, questions: list[str]) -> types.InlineKeyboardMarkup:
+def _next_questions_keyboard(user_id: str, questions: list[str]) -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
     for i, q in enumerate(questions):
         label = q if len(q) <= _BTN_MAX else q[:_BTN_MAX - 1] + "…"
-        markup.add(types.InlineKeyboardButton(label, callback_data=f"nq:{bale_tid}:{i}"))
+        markup.add(types.InlineKeyboardButton(label, callback_data=f"nq:{user_id}:{i}"))
     return markup
 
 
@@ -127,11 +123,10 @@ def _questions_message(questions: list[str]) -> str:
     return "\n".join(lines)
 
 
-
-def _exam_question_keyboard(bale_tid: int, q_idx: int, options: list[str]) -> types.InlineKeyboardMarkup:
+def _exam_question_keyboard(user_id: str, q_idx: int, options: list[str]) -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
     for opt_idx, opt in enumerate(options):
-        markup.add(types.InlineKeyboardButton(opt, callback_data=f"eq:{bale_tid}:{q_idx}:{opt_idx}"))
+        markup.add(types.InlineKeyboardButton(opt, callback_data=f"eq:{user_id}:{q_idx}:{opt_idx}"))
     return markup
 
 
@@ -151,7 +146,7 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
         return isinstance(txt, str) and bool(txt.strip()) and not txt.strip().startswith("/")
 
     def _send_answer(
-        bale_tid: int,
+        user_id: str,
         answer: Union[AgentResponse, str],
         reply_to: types.Message,
         status_msg: types.Message | None,
@@ -161,7 +156,6 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
             body_md = markdown_to_bale_markdown(_format_main_response(answer))
 
             if answer.response_type == "exam":
-                # Main content replaces the status message (no next-question keyboard)
                 if status_msg is not None:
                     try:
                         bot.edit_message_text(
@@ -175,11 +169,10 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 else:
                     bot.send_message(reply_to.chat.id, body_md, parse_mode="Markdown")
 
-                # Send each question as a separate message with option buttons
                 if answer.exam_questions:
-                    _pending_exams[str(bale_tid)] = list(answer.exam_questions)
+                    _pending_exams[user_id] = list(answer.exam_questions)
                     for q_idx, q in enumerate(answer.exam_questions):
-                        markup = _exam_question_keyboard(bale_tid, q_idx, q.options)
+                        markup = _exam_question_keyboard(user_id, q_idx, q.options)
                         bot.send_message(
                             reply_to.chat.id,
                             f"*سوال {q_idx + 1}:* {q.question}",
@@ -188,9 +181,8 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                         )
             else:
                 questions = list(answer.next_questions) if answer.next_questions else []
-                _pending_questions[str(bale_tid)] = questions
+                _pending_questions[user_id] = questions
 
-                # Send main answer clean (no keyboard)
                 if status_msg is not None:
                     try:
                         bot.edit_message_text(
@@ -204,17 +196,15 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 else:
                     bot.send_message(reply_to.chat.id, body_md, parse_mode="Markdown")
 
-                # Separate message: full question text + truncated buttons
                 if questions:
                     bot.send_message(
                         reply_to.chat.id,
                         _questions_message(questions),
                         parse_mode="Markdown",
-                        reply_markup=_next_questions_keyboard(bale_tid, questions),
+                        reply_markup=_next_questions_keyboard(user_id, questions),
                     )
                 return
         else:
-            # Plain-text fallback
             text_answer = answer if answer else (
                 "🧐 عجب سوال چالشی‌ای! دقیقاً متوجه منظورت نشدم. یه جور دیگه بپرس یا جزئیات بیشتری بهم بده تا بترکونیم!"
             )
@@ -247,8 +237,6 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
             user_id=uid,
             prompt_preview=raw[:120] if raw else "",
         )
-        if uid:
-            log_msg(uid, "in", "text", raw, message.message_id)
         try:
             if not message.from_user:
                 bot.reply_to(
@@ -260,10 +248,12 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
             bale_tid = int(message.from_user.id)
             prompt = message.text.strip() if message.text else ""
 
+            # Resolve canonical user_id early
+            linked_user = None
             try:
                 db = get_db_session()
                 try:
-                    linked = bale_user_service.fetch_user_by_bale_user_id(db, bale_tid)
+                    linked_user = bale_user_service.fetch_user_by_identity(db, "bale", str(bale_tid))
                 finally:
                     db.close()
             except Exception as session_err:
@@ -274,18 +264,22 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 )
                 return
 
-            if linked is None:
+            log_msg(linked_user.id if linked_user else None, "bale", "in", "text", raw, message.message_id)
+
+            if linked_user is None:
                 bot.reply_to(
                     message,
                     "👋 هنوز با هم رفیق نشدیم که! اول دکمه /start رو بزن و «ارسال شماره من» رو انتخاب کن تا بتونم توی درس‌ها کمکت کنم. منتظرتم! 💬",
                 )
                 return
 
+            user_id = linked_user.id
+
             # Rate-limit check
             try:
                 rl_db = get_db_session()
                 try:
-                    allowed, sub = subscription_service.check_rate_limit(rl_db, bale_tid)
+                    allowed, sub = subscription_service.check_rate_limit(rl_db, user_id)
                 finally:
                     rl_db.close()
             except Exception as rl_err:
@@ -311,23 +305,23 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 try:
                     text = random.choice(_THINKING_STATUS_LINES)
                     status_msg[0] = bot.reply_to(message, text)
-                    log_msg(bale_tid, "out", "status", text)
+                    log_msg(user_id, "bale", "out", "status", text)
                 except Exception:
                     pass
 
             def on_searching() -> None:
                 text = random.choice(_SEARCHING_STATUS_LINES)
                 _edit_status(text)
-                log_msg(bale_tid, "out", "status", text)
+                log_msg(user_id, "bale", "out", "status", text)
 
             def on_got_it() -> None:
                 text = random.choice(_GOT_IT_STATUS_LINES)
                 _edit_status(text)
-                log_msg(bale_tid, "out", "status", text)
+                log_msg(user_id, "bale", "out", "status", text)
 
             try:
                 answer, cost_usd = bridge.invoke_reply_with_status(
-                    bale_tid,
+                    user_id,
                     prompt,
                     on_thinking=on_thinking,
                     on_searching=on_searching,
@@ -343,17 +337,17 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                         pass
                 error_text = "⚡ انرژی سیستم یه لحظه افت کرد! دوباره بپرس تا با قدرت کامل جواب بدم. این دفعه حله! 🚀"
                 bot.reply_to(message, error_text)
-                log_msg(bale_tid, "out", "error", error_text)
+                log_msg(user_id, "bale", "out", "error", error_text)
                 return
 
-            _send_answer(bale_tid, answer, message, status_msg[0])
+            _send_answer(user_id, answer, message, status_msg[0])
             answer_text = answer.main_content if isinstance(answer, AgentResponse) else str(answer)
-            log_msg(bale_tid, "out", "text", answer_text)
+            log_msg(user_id, "bale", "out", "text", answer_text)
 
             try:
                 usage_db = get_db_session()
                 try:
-                    subscription_service.record_usage(usage_db, bale_tid, cost_usd)
+                    subscription_service.record_usage(usage_db, user_id, cost_usd)
                 finally:
                     usage_db.close()
             except Exception as usage_err:
@@ -365,7 +359,7 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 error_text = "🎙️ یک-دو-سه، امتحان می‌کنیم! یه نویز کوچیک افتاد تو ارتباطمون. یه بار دیگه بفرست که پرقدرت بریم جلو! 💪"
                 bot.reply_to(message, error_text)
                 if uid:
-                    log_msg(uid, "out", "error", error_text)
+                    log_msg(None, "bale", "out", "error", error_text)
             except Exception:
                 pass
 
@@ -389,11 +383,10 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 bot.answer_callback_query(call.id)
                 return
 
-            _, tid_str, idx_str = parts
-            bale_tid = int(tid_str)
+            _, user_id, idx_str = parts
             idx = int(idx_str)
 
-            questions = _pending_questions.get(str(bale_tid), [])
+            questions = _pending_questions.get(user_id, [])
             if idx >= len(questions):
                 bot.answer_callback_query(call.id, "سوال پیدا نشد!")
                 return
@@ -406,12 +399,11 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
             chat_id = call.message.chat.id
 
-            # Show the question as a standalone message (simulates user typing it)
             try:
                 question_msg = bot.send_message(chat_id, f"❓ {question}")
             except Exception:
                 question_msg = call.message
-            log_msg(bale_tid, "in", "callback", question)
+            log_msg(user_id, "bale", "in", "callback", question)
 
             status_msg: list[types.Message | None] = [None]
 
@@ -428,23 +420,23 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 try:
                     text = random.choice(_THINKING_STATUS_LINES)
                     status_msg[0] = bot.reply_to(question_msg, text)
-                    log_msg(bale_tid, "out", "status", text)
+                    log_msg(user_id, "bale", "out", "status", text)
                 except Exception:
                     pass
 
             def on_searching() -> None:
                 text = random.choice(_SEARCHING_STATUS_LINES)
                 _edit_status(text)
-                log_msg(bale_tid, "out", "status", text)
+                log_msg(user_id, "bale", "out", "status", text)
 
             def on_got_it() -> None:
                 text = random.choice(_GOT_IT_STATUS_LINES)
                 _edit_status(text)
-                log_msg(bale_tid, "out", "status", text)
+                log_msg(user_id, "bale", "out", "status", text)
 
             try:
                 answer, cost_usd = bridge.invoke_reply_with_status(
-                    bale_tid,
+                    user_id,
                     question,
                     on_thinking=on_thinking,
                     on_searching=on_searching,
@@ -460,16 +452,16 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                         pass
                 error_text = "⚡ انرژی سیستم یه لحظه افت کرد! دوباره بپرس تا با قدرت کامل جواب بدم. این دفعه حله! 🚀"
                 bot.send_message(chat_id, error_text)
-                log_msg(bale_tid, "out", "error", error_text)
+                log_msg(user_id, "bale", "out", "error", error_text)
                 return
 
-            _send_answer(bale_tid, answer, question_msg, status_msg[0])
+            _send_answer(user_id, answer, question_msg, status_msg[0])
             answer_text = answer.main_content if isinstance(answer, AgentResponse) else str(answer)
-            log_msg(bale_tid, "out", "text", answer_text)
+            log_msg(user_id, "bale", "out", "text", answer_text)
             try:
                 usage_db = get_db_session()
                 try:
-                    subscription_service.record_usage(usage_db, bale_tid, cost_usd)
+                    subscription_service.record_usage(usage_db, user_id, cost_usd)
                 finally:
                     usage_db.close()
             except Exception:
@@ -494,12 +486,11 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 bot.answer_callback_query(call.id)
                 return
 
-            _, tid_str, q_idx_str, opt_idx_str = parts
-            bale_tid = int(tid_str)
+            _, user_id, q_idx_str, opt_idx_str = parts
             q_idx = int(q_idx_str)
             opt_idx = int(opt_idx_str)
 
-            exam_qs = _pending_exams.get(str(bale_tid), [])
+            exam_qs = _pending_exams.get(user_id, [])
             if q_idx >= len(exam_qs):
                 bot.answer_callback_query(call.id, "سوال پیدا نشد!")
                 return
@@ -527,11 +518,10 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
             chat_id = call.message.chat.id
 
-            # Show feedback + single "explain" button (no agent call yet)
             explain_markup = types.InlineKeyboardMarkup()
             explain_markup.add(types.InlineKeyboardButton(
                 "💡 توضیح بیشتر می‌خوام",
-                callback_data=f"ex:{bale_tid}:{q_idx}",
+                callback_data=f"ex:{user_id}:{q_idx}",
             ))
             try:
                 bot.edit_message_text(
@@ -544,12 +534,11 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
             except Exception:
                 bot.send_message(chat_id, result_text, parse_mode="Markdown")
 
-            # Silently record this answer so the agent knows about it on the next call
             result_label = "درست" if is_correct else "اشتباه"
-            log_msg(bale_tid, "in", "callback", f"exam answer: {chosen} ({result_label})")
-            log_msg(bale_tid, "out", "text", result_text)
+            log_msg(user_id, "bale", "in", "callback", f"exam answer: {chosen} ({result_label})")
+            log_msg(user_id, "bale", "out", "text", result_text)
             bridge.add_exam_context(
-                bale_tid,
+                user_id,
                 f"سوال {q_idx + 1}: {q.question} | انتخابی: {chosen} | صحیح: {q.correct_answer} | {result_label}",
             )
 
@@ -572,11 +561,10 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 bot.answer_callback_query(call.id)
                 return
 
-            _, tid_str, q_idx_str = parts
-            bale_tid = int(tid_str)
+            _, user_id, q_idx_str = parts
             q_idx = int(q_idx_str)
 
-            exam_qs = _pending_exams.get(str(bale_tid), [])
+            exam_qs = _pending_exams.get(user_id, [])
             if q_idx >= len(exam_qs):
                 bot.answer_callback_query(call.id, "سوال پیدا نشد!")
                 return
@@ -589,7 +577,6 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
 
             chat_id = call.message.chat.id
 
-            # Remove the explain button from the question message
             try:
                 bot.edit_message_reply_markup(
                     chat_id=chat_id,
@@ -599,12 +586,11 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
             except Exception:
                 pass
 
-            # Show the question as a standalone message, then reply to it
             try:
                 question_msg = bot.send_message(chat_id, f"❓ {q.question}")
             except Exception:
                 question_msg = call.message
-            log_msg(bale_tid, "in", "callback", f"explain: {q.question}")
+            log_msg(user_id, "bale", "in", "callback", f"explain: {q.question}")
 
             explanation_prompt = (
                 f"لطفاً این سوال آزمون را کامل توضیح بده:\n"
@@ -629,23 +615,23 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                 try:
                     text = random.choice(_THINKING_STATUS_LINES)
                     status_msg[0] = bot.reply_to(question_msg, text)
-                    log_msg(bale_tid, "out", "status", text)
+                    log_msg(user_id, "bale", "out", "status", text)
                 except Exception:
                     pass
 
             def on_searching() -> None:
                 text = random.choice(_SEARCHING_STATUS_LINES)
                 _edit_status(text)
-                log_msg(bale_tid, "out", "status", text)
+                log_msg(user_id, "bale", "out", "status", text)
 
             def on_got_it() -> None:
                 text = random.choice(_GOT_IT_STATUS_LINES)
                 _edit_status(text)
-                log_msg(bale_tid, "out", "status", text)
+                log_msg(user_id, "bale", "out", "status", text)
 
             try:
                 answer, cost_usd = bridge.invoke_reply_with_status(
-                    bale_tid,
+                    user_id,
                     explanation_prompt,
                     on_thinking=on_thinking,
                     on_searching=on_searching,
@@ -661,16 +647,16 @@ def register_deep_chat_handler(deps: BaleHandlerDeps) -> None:
                         pass
                 error_text = "⚡ خطایی پیش آمد، دوباره تلاش کن."
                 bot.send_message(chat_id, error_text)
-                log_msg(bale_tid, "out", "error", error_text)
+                log_msg(user_id, "bale", "out", "error", error_text)
                 return
 
-            _send_answer(bale_tid, answer, question_msg, status_msg[0])
+            _send_answer(user_id, answer, question_msg, status_msg[0])
             answer_text = answer.main_content if isinstance(answer, AgentResponse) else str(answer)
-            log_msg(bale_tid, "out", "text", answer_text)
+            log_msg(user_id, "bale", "out", "text", answer_text)
             try:
                 usage_db = get_db_session()
                 try:
-                    subscription_service.record_usage(usage_db, bale_tid, cost_usd)
+                    subscription_service.record_usage(usage_db, user_id, cost_usd)
                 finally:
                     usage_db.close()
             except Exception:

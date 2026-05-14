@@ -1,4 +1,4 @@
-"""BaleMessage model — records all inbound and outbound bot messages."""
+"""Message model — records all inbound and outbound bot messages across channels."""
 
 from typing import TYPE_CHECKING, Optional
 
@@ -11,8 +11,8 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
-class BaleMessage(BaseDBModelUUID, table=True):
-    __tablename__ = "bale_message"  # type: ignore[assignment]
+class Message(BaseDBModelUUID, table=True):
+    __tablename__ = "message"  # type: ignore[assignment]
 
     user_id: str | None = Field(
         default=None,
@@ -20,12 +20,12 @@ class BaleMessage(BaseDBModelUUID, table=True):
         foreign_key="user.id",
         index=True,
     )
-    bale_user_id: int = Field(
+    channel: str = Field(
         nullable=False,
-        index=True,
-        sa_type=sa.BigInteger,
+        max_length=32,
+        sa_column_kwargs={"comment": "bale | web | telegram"},
     )
-    direction: str = Field(nullable=False, max_length=8)   # "in" | "out"
+    direction: str = Field(nullable=False, max_length=8)    # "in" | "out"
     message_type: str = Field(nullable=False, max_length=32)  # "text"|"command"|"contact"|"callback"|"error"|"status"
     content: str = Field(nullable=False, sa_type=sa.Text)
     raw_update_id: int | None = Field(default=None, nullable=True, sa_type=sa.BigInteger)
@@ -35,6 +35,10 @@ class BaleMessage(BaseDBModelUUID, table=True):
     def __repr__(self) -> str:
         snippet = self.content[:40].replace("\n", " ")
         return (
-            f"BaleMessage(id={self.id}, user={self.bale_user_id}, "
+            f"Message(id={self.id}, user={self.user_id}, channel={self.channel}, "
             f"{self.direction}/{self.message_type}, '{snippet}')"
         )
+
+
+# Backward-compat alias so any stale import of BaleMessage still resolves
+BaleMessage = Message

@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirna
 from app.settings import settings  # noqa: E402
 
 # Import all SQLModel table models so their metadata is registered
-from app.models import User  # noqa: F401, E402
+from app.models import User, UserIdentity, Message, Payment, UserSubscription  # noqa: F401, E402
 
 # this is the Alembic Config object
 config = context.config

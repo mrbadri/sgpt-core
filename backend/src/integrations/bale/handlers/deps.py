@@ -32,7 +32,8 @@ def log_bale_incoming(handler: str, **fields: object) -> None:
 
 
 def _persist_message(
-    bale_user_id: int,
+    user_id: str | None,
+    channel: str,
     direction: str,
     message_type: str,
     content: str,
@@ -47,7 +48,8 @@ def _persist_message(
         try:
             message_service.record(
                 db,
-                bale_user_id=bale_user_id,
+                user_id=user_id,
+                channel=channel,
                 direction=direction,
                 message_type=message_type,
                 content=content,
@@ -70,7 +72,8 @@ class BaleHandlerDeps:
 
     def log_message(
         self,
-        bale_user_id: int,
+        user_id: str | None,
+        channel: str,
         direction: str,
         message_type: str,
         content: str,
@@ -79,7 +82,8 @@ class BaleHandlerDeps:
         """Fire-and-forget: persist a message to DB without blocking."""
         _msg_executor.submit(
             _persist_message,
-            bale_user_id,
+            user_id,
+            channel,
             direction,
             message_type,
             content,

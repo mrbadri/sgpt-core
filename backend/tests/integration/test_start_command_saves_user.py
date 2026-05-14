@@ -6,6 +6,7 @@ from telebot import types
 from sqlmodel import select
 
 from app.models.user import User
+from app.models.identity import UserIdentity
 from app.services.agent_bridge import BaleAgentBridge
 from integrations.bale.bot_service import BotService
 
@@ -58,7 +59,7 @@ class TestStartCommand:
 
 class TestContactHandler:
     @patch("integrations.bale.handlers.contact.get_db_session")
-    def test_contact_creates_user(self, mock_get_db, test_db):
+    def test_contact_creates_user_and_identity(self, mock_get_db, test_db):
         mock_get_db.return_value = test_db
 
         bot_service = BotService(token="123456:test_token", api_url="https://api.bale.ai")
@@ -78,13 +79,21 @@ class TestContactHandler:
 
         stored = test_db.exec(select(User).where(User.mobile == 9123456789)).first()
         assert stored is not None
-        assert stored.bale_user_id == 42
+
+        identity = test_db.exec(
+            select(UserIdentity).where(
+                UserIdentity.provider == "bale",
+                UserIdentity.provider_user_id == "42",
+            )
+        ).first()
+        assert identity is not None
+        assert identity.user_id == stored.id
         bot_service.bot.reply_to.assert_called()
 
     @patch("integrations.bale.handlers.contact.get_db_session")
     def test_contact_links_existing_mobile(self, mock_get_db, test_db):
         mock_get_db.return_value = test_db
-        user = User(mobile=9120000000, bale_user_id=None)
+        user = User(mobile=9120000000)
         test_db.add(user)
         test_db.commit()
         test_db.refresh(user)
@@ -104,9 +113,14 @@ class TestContactHandler:
         assert handler is not None
         handler(message)
 
-        row = test_db.exec(select(User).where(User.mobile == 9120000000)).first()
-        assert row is not None
-        assert row.bale_user_id == 99
+        identity = test_db.exec(
+            select(UserIdentity).where(
+                UserIdentity.provider == "bale",
+                UserIdentity.provider_user_id == "99",
+            )
+        ).first()
+        assert identity is not None
+        assert identity.user_id == user.id
 
 
 class TestDeepChatHandler:
@@ -114,8 +128,11 @@ class TestDeepChatHandler:
     @patch("integrations.bale.handlers.deep_chat.get_db_session")
     def test_plain_text_uses_agent_when_linked(self, mock_get_db, _mock_invoke, test_db):
         mock_get_db.return_value = test_db
-        user = User(mobile=9130000000, bale_user_id=7001)
+        user = User(mobile=9130000000)
         test_db.add(user)
+        test_db.flush()
+        identity = UserIdentity(user_id=user.id, provider="bale", provider_user_id="7001")
+        test_db.add(identity)
         test_db.commit()
 
         bot_service = BotService(token="123456:test_token", api_url="https://api.bale.ai")
@@ -136,3 +153,38 @@ class TestDeepChatHandler:
         bot_service.bot.reply_to.assert_called()
         call_text = bot_service.bot.reply_to.call_args[0][1]
         assert "سلام از دستیار" in call_text
+
+
+class TestMultiProviderIdentity:
+    """Two different providers resolve to the same users.id."""
+
+    def test_bale_and_web_share_same_user(self, test_db):
+        from app.services.bale_user_service import fetch_user_by_identity
+        import uuid as _uuid
+
+        user = User(mobile=9140000000)
+        test_db.add(user)
+        test_db.flush()
+
+        bale_identity = UserIdentity(
+            id=str(_uuid.uuid4()),
+            user_id=user.id,
+            provider="bale",
+            provider_user_id="11111",
+        )
+        web_identity = UserIdentity(
+            id=str(_uuid.uuid4()),
+            user_id=user.id,
+            provider="web",
+            provider_user_id="web-token-abc",
+        )
+        test_db.add(bale_identity)
+        test_db.add(web_identity)
+        test_db.commit()
+
+        bale_user = fetch_user_by_identity(test_db, "bale", "11111")
+        web_user = fetch_user_by_identity(test_db, "web", "web-token-abc")
+
+        assert bale_user is not None
+        assert web_user is not None
+        assert bale_user.id == web_user.id == user.id
