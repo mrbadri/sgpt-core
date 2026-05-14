@@ -19,6 +19,14 @@ jobs:
       - name: Install jq
         run: apt-get install -y jq
 
+      - name: Inject Environment File
+        env:
+          ENV_FILE_CONTENT: ${{ secrets.ENV_FILE_CONTENT }}
+        run: |
+          mkdir -p infrastructure
+          printf '%s' "$ENV_FILE_CONTENT" > infrastructure/.env
+          echo "Environment file written to infrastructure/.env."
+
       - name: Dump PostgreSQL
         run: |
           set -a; source infrastructure/.env; set +a
@@ -41,9 +49,6 @@ jobs:
           TARBALL="/tmp/backup-${TIMESTAMP}.tar.gz"
           echo "TARBALL=$TARBALL" >> $GITHUB_ENV
           tar -czf "$TARBALL" \
-            infrastructure/docker-compose.prod.yml \
-            infrastructure/.env \
-            .gitea/ \
             -C /tmp postgres.sql falkordb.rdb
           rm -f /tmp/postgres.sql /tmp/falkordb.rdb
 

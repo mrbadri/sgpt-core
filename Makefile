@@ -11,7 +11,8 @@ clean ps shell shell-backend shell-db migrate migrate-create \
 migrate-current migrate-history migrate-downgrade test test-unit \
 test-integration test-users dev-logs-web dev-restart-web dev-build-web \
 shell-web prod-logs-web prod-restart-web prod-build-web shell-web-prod \
-frontend-install frontend-dev frontend-build frontend-lint frontend-typecheck
+frontend-install frontend-dev frontend-build frontend-lint frontend-typecheck \
+db-restore-dev db-restore-prod
 
 # Get the directory where this Makefile is located
 ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
@@ -71,6 +72,10 @@ help: ## Show this help message
 	@echo "  frontend-build    pnpm build"
 	@echo "  frontend-lint     pnpm lint"
 	@echo "  frontend-typecheck  pnpm typecheck"
+	@echo ""
+	@echo "Backup Restore Commands:"
+	@echo "  db-restore-dev  Restore PostgreSQL from a Gitea backup release (dev)"
+	@echo "  db-restore-prod Restore PostgreSQL from a Gitea backup release (prod)"
 	@echo ""
 	@echo "Migration Commands:"
 	@echo "  migrate         Run database migrations (dev) - upgrade to head"
@@ -232,7 +237,14 @@ db-shell-dev: ## Open PostgreSQL shell (dev)
 	docker-compose -f $(DEV_COMPOSE) exec db psql -U bale_bot -d bale_bot
 
 db-shell-prod: ## Open PostgreSQL shell (prod)
-	docker-compose -f $(PROD_COMPOSE) exec db psql -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+	@set -a && . $(ROOT_DIR)/infrastructure/.env && set +a && \
+	docker-compose -f $(PROD_COMPOSE) exec db psql -U $$POSTGRES_USER -d $$POSTGRES_DB
+
+db-restore-dev: ## Restore PostgreSQL from a Gitea backup release → development (interactive)
+	@$(ROOT_DIR)/infrastructure/scripts/restore-db.sh dev
+
+db-restore-prod: ## Restore PostgreSQL from a Gitea backup release → production (interactive)
+	@$(ROOT_DIR)/infrastructure/scripts/restore-db.sh prod
 
 # Migration commands (aliases for convenience)
 migrate: ## Run database migrations (dev) - upgrade to head
