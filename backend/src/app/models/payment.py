@@ -5,10 +5,10 @@ from __future__ import annotations
 import sqlalchemy as sa
 from sqlmodel import Field
 
-from app.models.base import BaseDBModel
+from app.models.base import BaseDBModelUUID
 
 
-class BalePayment(BaseDBModel, table=True):
+class BalePayment(BaseDBModelUUID, table=True):
     __tablename__ = "bale_payment"  # type: ignore[assignment]
 
     bale_user_id: int = Field(

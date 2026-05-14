@@ -7,10 +7,10 @@ from datetime import datetime
 import sqlalchemy as sa
 from sqlmodel import Field
 
-from app.models.base import BaseDBModel
+from app.models.base import BaseDBModelUUID
 
 
-class UserSubscription(BaseDBModel, table=True):
+class UserSubscription(BaseDBModelUUID, table=True):
     __tablename__ = "user_subscription"  # type: ignore[assignment]
 
     bale_user_id: int = Field(

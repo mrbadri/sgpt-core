@@ -1,16 +1,25 @@
 """BaleMessage model — records all inbound and outbound bot messages."""
 
-from __future__ import annotations
+from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sa
-from sqlmodel import Field
+from sqlmodel import Field, Relationship
 
-from app.models.base import BaseDBModel
+from app.models.base import BaseDBModelUUID
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 
-class BaleMessage(BaseDBModel, table=True):
+class BaleMessage(BaseDBModelUUID, table=True):
     __tablename__ = "bale_message"  # type: ignore[assignment]
 
+    user_id: str | None = Field(
+        default=None,
+        nullable=True,
+        foreign_key="user.id",
+        index=True,
+    )
     bale_user_id: int = Field(
         nullable=False,
         index=True,
@@ -20,6 +29,8 @@ class BaleMessage(BaseDBModel, table=True):
     message_type: str = Field(nullable=False, max_length=32)  # "text"|"command"|"contact"|"callback"|"error"|"status"
     content: str = Field(nullable=False, sa_type=sa.Text)
     raw_update_id: int | None = Field(default=None, nullable=True, sa_type=sa.BigInteger)
+
+    user: Optional["User"] = Relationship(back_populates="messages")
 
     def __repr__(self) -> str:
         snippet = self.content[:40].replace("\n", " ")
