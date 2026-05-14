@@ -43,9 +43,36 @@ from typing import Any
 
 from graphiti_core import Graphiti
 from graphiti_core.driver.driver import GraphDriver
+from graphiti_core.llm_client.errors import RateLimitError as GraphitiRateLimitError
 from graphiti_core.nodes import EpisodeType
 
 from config.falkordb import FALKOR_DATABASE
+
+# ---------------------------------------------------------------------------
+# Retry helpers
+# ---------------------------------------------------------------------------
+_RATE_LIMIT_INITIAL_WAIT_S = float(os.environ.get("INGEST_RATE_LIMIT_WAIT_S", "60"))
+_RATE_LIMIT_MAX_RETRIES = int(os.environ.get("INGEST_RATE_LIMIT_MAX_RETRIES", "5"))
+
+
+async def _add_episode_with_retry(graphiti: Graphiti, **kwargs):
+    """Call graphiti.add_episode with exponential back-off on RateLimitError."""
+    wait = _RATE_LIMIT_INITIAL_WAIT_S
+    for attempt in range(1, _RATE_LIMIT_MAX_RETRIES + 1):
+        try:
+            return await graphiti.add_episode(**kwargs)
+        except GraphitiRateLimitError as exc:
+            if attempt == _RATE_LIMIT_MAX_RETRIES:
+                raise
+            logging.getLogger(__name__).warning(
+                "rate_limit attempt=%s/%s waiting=%.0fs episode_name=%s",
+                attempt,
+                _RATE_LIMIT_MAX_RETRIES,
+                wait,
+                kwargs.get("name", "?"),
+            )
+            await asyncio.sleep(wait)
+            wait = min(wait * 2, 600)
 
 
 def _load_textbook_structure():
@@ -706,7 +733,8 @@ async def ingest_split_json(
             prepend=prepend_episode_source,
         )
         t_ae = time.perf_counter()
-        result = await graphiti.add_episode(
+        result = await _add_episode_with_retry(
+            graphiti,
             name=ep_name,
             episode_body=episode_body,
             source_description=src_desc,
