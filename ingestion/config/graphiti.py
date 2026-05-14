@@ -5,7 +5,10 @@ from __future__ import annotations
 import logging
 import os
 
-from dotenv import load_dotenv
+from config.repo_env import load_repo_dotenv
+
+load_repo_dotenv()
+
 from graphiti_core import Graphiti
 from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
 from graphiti_core.embedder import OpenAIEmbedder, OpenAIEmbedderConfig
@@ -22,7 +25,6 @@ def _truthy_env(name: str) -> bool:
 
 
 # --- env ---------------------------------------------------------------------------
-load_dotenv()
 
 # LLM for Graphiti indexing (OpenAI-compatible)
 GRAPHITI_INDEX_LLM_BASE_URL = os.getenv("GRAPHITI_INDEX_LLM_BASE_URL")

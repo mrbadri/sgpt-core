@@ -11,9 +11,10 @@ from typing import List
 
 from langchain_core.embeddings import Embeddings
 from openai import OpenAI
-from dotenv import load_dotenv
 
-load_dotenv()
+from config.repo_env import load_repo_dotenv
+
+load_repo_dotenv()
 
 # Constants
 EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL")

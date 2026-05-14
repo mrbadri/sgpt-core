@@ -6,11 +6,11 @@ import logging
 import os
 from typing import Any
 
-from dotenv import load_dotenv
+from config.repo_env import load_repo_dotenv
 from graphiti_core.driver.falkordb_driver import FalkorDriver as _UpstreamFalkorDriver
 from graphiti_core.utils.datetime_utils import convert_datetimes_to_strings
 
-load_dotenv()
+load_repo_dotenv()
 
 logger = logging.getLogger(__name__)
 
