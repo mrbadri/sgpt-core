@@ -1,0 +1,85 @@
+# syntax=docker/dockerfile:1
+# Build context: repo root  →  docker build -f infrastructure/Dockerfile.web .
+# Debian slim (glibc): Tailwind 4 / lightningcss native bindings require glibc, not musl/Alpine.
+
+ARG NODE_VERSION=20
+ARG PNPM_VERSION=9.15.9
+ARG TURBO_VERSION=2.8.17
+
+# ─────────────────────────────────────────────────────────────────────────────
+# base — node + pnpm + turbo
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:${NODE_VERSION}-bookworm-slim AS base
+ARG PNPM_VERSION
+ARG TURBO_VERSION
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+RUN npm install -g turbo@${TURBO_VERSION} --no-update-notifier
+ENV CI=true \
+    NEXT_TELEMETRY_DISABLED=1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# pruner — turbo prune creates a minimal workspace for the web app only
+# ─────────────────────────────────────────────────────────────────────────────
+FROM base AS pruner
+WORKDIR /app
+# Copy full frontend monorepo so turbo can walk the workspace graph
+COPY frontend/ .
+# out/json  → package.json files only  (for the install layer)
+# out/full  → full pruned source       (for the build layer)
+# out/pnpm-lock.yaml → pruned lockfile
+RUN turbo prune web --docker
+
+# ─────────────────────────────────────────────────────────────────────────────
+# installer — install only the deps needed by web and its workspace deps
+# ─────────────────────────────────────────────────────────────────────────────
+FROM base AS installer
+WORKDIR /app
+# Step 1: restore lockfile + package.json skeletons (maximises layer cache)
+COPY --from=pruner /app/out/json/    ./
+COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+# Step 2: copy pruned full source and build
+COPY --from=pruner /app/out/full/    ./
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8800
+ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL} \
+    NODE_ENV=production
+RUN turbo build --filter=web
+
+# ─────────────────────────────────────────────────────────────────────────────
+# production — minimal runtime via Next.js standalone output
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:${NODE_VERSION}-bookworm-slim AS production
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+WORKDIR /app
+
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser  --system --uid 1001 nextjs
+
+# standalone bundles server.js + trimmed node_modules — no source, no full deps tree
+COPY --from=installer --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
+COPY --from=installer --chown=nextjs:nodejs /app/apps/web/.next/static     ./apps/web/.next/static
+COPY --from=installer --chown=nextjs:nodejs /app/apps/web/public           ./apps/web/public
+
+USER nextjs
+EXPOSE 3000
+CMD ["node", "apps/web/server.js"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# development — deps pre-installed; full source bind-mounted by compose
+# ─────────────────────────────────────────────────────────────────────────────
+FROM base AS development
+WORKDIR /app
+# Pre-install from pruned manifests so the layer is cached independently of source
+COPY --from=pruner /app/out/json/         ./
+COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+EXPOSE 3000
+# docker-compose bind-mounts frontend/ over /app; re-install picks up any
+# workspace changes introduced since the image was built, then starts turbopack.
+CMD ["sh", "-c", "pnpm install --frozen-lockfile && turbo dev --filter=web"]

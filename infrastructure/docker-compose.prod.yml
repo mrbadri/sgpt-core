@@ -25,7 +25,7 @@ services:
       context: ..
       dockerfile: infrastructure/Dockerfile
     ports:
-      - "8800:8000"
+      - "127.0.0.1:18000:8000"
     volumes:
       - user_memories:/app/user_memories
     env_file:
@@ -54,6 +54,36 @@ services:
           cpus: '0.5'
           memory: 256M
 
+  web:
+    build:
+      context: ..
+      dockerfile: infrastructure/Dockerfile.web
+      target: production
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8800}
+    ports:
+      - "127.0.0.1:13000:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8800
+      API_URL_INTERNAL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - backend_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
   pgadmin:
     image: dpage/pgadmin4:latest
     entrypoint: >
@@ -74,7 +104,7 @@ services:
       PGADMIN_CONFIG_SESSION_COOKIE_HTTPONLY: "True"
       PGADMIN_CONFIG_WTF_CSRF_ENABLED: "True"
     ports:
-      - "5050:80"
+      - "127.0.0.1:15000:80"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
       - ./pgadmin-servers.prod.json:/pgadmin4/servers.json:ro
@@ -94,8 +124,7 @@ services:
     image: falkordb/falkordb:latest
     # container_name: falkordb-production
     ports:
-      - "8379:6379"
-      - "3379:3000"
+      - "127.0.0.1:14000:3000"
     environment:
       - REDIS_ARGS=--requirepass ${FALKORDB_PASSWORD:-abcd@1234} --appendonly yes --appendfsync everysec --maxmemory 2gb --maxmemory-policy allkeys-lru
       - FALKORDB_ARGS=THREAD_COUNT 8 CACHE_SIZE 50 TIMEOUT_MAX 60000 TIMEOUT_DEFAULT 30000 QUERY_MEM_CAPACITY 104857600

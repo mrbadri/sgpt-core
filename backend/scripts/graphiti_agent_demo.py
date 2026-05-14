@@ -45,7 +45,6 @@ See app.config.graphiti.GraphitiSettings / repo .env.example."""
 _LLM_CONNECT_HINT = """\
 LLM HTTP connection failed (bad host, DNS, or wrong base URL). Fix:
   AGENT_CHAT_MODEL, AGENT_CHAT_API_KEY, AGENT_CHAT_BASE_URL
-or fallbacks GRAPHITI_INDEX_LLM_* / GAPGPT_API_KEY / GEMINI_BASE_URL.
 Errno 8 / "nodename nor servname" usually means the base URL host is empty or invalid."""
 
 

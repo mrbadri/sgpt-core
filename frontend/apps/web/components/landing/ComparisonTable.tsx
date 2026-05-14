@@ -13,7 +13,10 @@ const fadeUp = {
 }
 
 export default function ComparisonTable() {
-  const row = comparisonData[0]
+  const [row] = comparisonData
+  if (!row) {
+    return null
+  }
 
   return (
     <div className="w-full">

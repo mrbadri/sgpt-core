@@ -3,7 +3,7 @@
 Needs the same variables as ``ingestion.config.graphiti``: FalkorDB / Neo4j connection
 vars and Graphiti indexing API keys: ``GRAPHITI_INDEX_LLM_*``,
 ``GRAPHITI_INDEX_EMBEDDING_*``, and optionally ``GRAPHITI_INDEX_RERANKER_*`` (see ``.env.example``).
-Other ingestion helpers may use ``EMBEDDING_*`` / ``GEMINI_BASE_URL`` / ``GAPGPT_API_KEY`` separately.
+Other ingestion helpers may use ``EMBEDDING_*`` separately.
 
 From the repository root::
 

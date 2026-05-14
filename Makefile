@@ -9,9 +9,13 @@
 prod-up prod-down prod-down-v prod-build prod-logs prod-restart \
 clean ps shell shell-backend shell-db migrate migrate-create \
 migrate-current migrate-history migrate-downgrade test test-unit \
-test-integration test-users
+test-integration test-users dev-logs-web dev-restart-web dev-build-web \
+shell-web prod-logs-web prod-restart-web prod-build-web shell-web-prod \
+frontend-install frontend-dev frontend-build frontend-lint frontend-typecheck
+
 # Get the directory where this Makefile is located
 ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
+FRONTEND_DIR = $(ROOT_DIR)/frontend
 
 # Docker Compose file paths
 DEV_COMPOSE = $(ROOT_DIR)/infrastructure/docker-compose.dev.yml
@@ -24,31 +28,47 @@ help: ## Show this help message
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Quick Start (Dev Workflow):"
-	@echo "  1. make dev-up      # Start db + backend"
+	@echo "  1. make dev-up      # Start db + backend + web (Next.js :3000, API :8000)"
 	@echo "  2. make migrate     # Create tables (required on first run!)"
 	@echo "  3. Use the bot      # Data will be saved to bot_users table"
+	@echo "  4. Open http://localhost:3000 for the marketing web app (optional)"
 	@echo ""
 	@echo "Development Commands:"
 	@echo "  dev-up          Start development environment"
 	@echo "  dev-down        Stop development environment"
 	@echo "  dev-down-v      Stop development environment and remove volumes"
-	@echo "  dev-build       Build development images"
+	@echo "  dev-build       Build development images (backend + web)"
 	@echo "  dev-logs        Show development logs"
+	@echo "  dev-logs-web    Show web (Next.js) logs only"
 	@echo "  dev-restart     Restart development services"
+	@echo "  dev-restart-web Restart web service only"
+	@echo "  dev-build-web   Build web image only"
 	@echo ""
 	@echo "Production Commands:"
 	@echo "  prod-up         Start production environment"
 	@echo "  prod-down       Stop production environment"
 	@echo "  prod-down-v     Stop production environment and remove volumes"
-	@echo "  prod-build      Build production images"
+	@echo "  prod-build      Build production images (backend + web)"
+	@echo "  prod-build-web  Build production web image only"
 	@echo "  prod-logs       Show production logs"
+	@echo "  prod-logs-web   Show web logs only (prod)"
 	@echo "  prod-restart    Restart production services"
+	@echo "  prod-restart-web Restart web service only (prod)"
 	@echo ""
 	@echo "Utility Commands:"
 	@echo "  ps              Show running containers"
 	@echo "  clean           Remove containers, volumes, and images"
 	@echo "  shell-backend   Open shell in backend container (dev)"
 	@echo "  shell-db        Open shell in database container (dev)"
+	@echo "  shell-web       Open shell in web container (dev)"
+	@echo "  shell-web-prod  Open shell in web container (prod)"
+	@echo ""
+	@echo "Frontend (host pnpm — run without Docker Node toolchain optional):"
+	@echo "  frontend-install  pnpm install in frontend/"
+	@echo "  frontend-dev      pnpm dev (Turbo)"
+	@echo "  frontend-build    pnpm build"
+	@echo "  frontend-lint     pnpm lint"
+	@echo "  frontend-typecheck  pnpm typecheck"
 	@echo ""
 	@echo "Migration Commands:"
 	@echo "  migrate         Run database migrations (dev) - upgrade to head"
@@ -83,8 +103,17 @@ dev-logs-backend: ## Show backend logs only
 dev-logs-db: ## Show database logs only
 	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) logs -f db
 
+dev-logs-web: ## Show web (Next.js) logs only (dev)
+	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) logs -f web
+
 dev-restart: ## Restart development services
 	docker-compose -f $(DEV_COMPOSE) restart
+
+dev-restart-web: ## Restart web service only (dev)
+	docker-compose -f $(DEV_COMPOSE) restart web
+
+dev-build-web: ## Build web image only (dev target)
+	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) build web
 
 dev-stop: ## Stop development services without removing containers
 	docker-compose -f $(DEV_COMPOSE) stop
@@ -114,8 +143,17 @@ prod-logs-backend: ## Show backend logs only (prod)
 prod-logs-db: ## Show database logs only (prod)
 	docker-compose -f $(PROD_COMPOSE) logs -f db
 
+prod-logs-web: ## Show web logs only (prod)
+	cd $(ROOT_DIR) && docker-compose -f $(PROD_COMPOSE) logs -f web
+
 prod-restart: ## Restart production services
 	docker-compose -f $(PROD_COMPOSE) restart
+
+prod-restart-web: ## Restart web service only (prod)
+	docker-compose -f $(PROD_COMPOSE) restart web
+
+prod-build-web: ## Build production web image only
+	cd $(ROOT_DIR) && docker-compose -f $(PROD_COMPOSE) build web
 
 prod-stop: ## Stop production services without removing containers
 	docker-compose -f $(PROD_COMPOSE) stop
@@ -153,11 +191,32 @@ shell-backend: ## Open shell in backend container (dev)
 shell-db: ## Open shell in database container (dev)
 	docker-compose -f $(DEV_COMPOSE) exec db /bin/sh
 
+shell-web: ## Open shell in web container (dev)
+	docker-compose -f $(DEV_COMPOSE) exec web /bin/sh
+
 shell-backend-prod: ## Open shell in backend container (prod)
 	docker-compose -f $(PROD_COMPOSE) exec backend /bin/bash
 
 shell-db-prod: ## Open shell in database container (prod)
 	docker-compose -f $(PROD_COMPOSE) exec db /bin/sh
+
+shell-web-prod: ## Open shell in web container (prod)
+	docker-compose -f $(PROD_COMPOSE) exec web /bin/sh
+
+frontend-install: ## Install frontend dependencies (pnpm)
+	cd $(FRONTEND_DIR) && pnpm install
+
+frontend-dev: ## Start frontend dev servers via Turbo (host)
+	cd $(FRONTEND_DIR) && pnpm dev
+
+frontend-build: ## Build all frontend packages (Turbo)
+	cd $(FRONTEND_DIR) && pnpm build
+
+frontend-lint: ## Lint frontend (Turbo)
+	cd $(FRONTEND_DIR) && pnpm lint
+
+frontend-typecheck: ## Typecheck frontend (Turbo)
+	cd $(FRONTEND_DIR) && pnpm typecheck
 
 # Database commands
 db-migrate-dev: ## Run database migrations (dev)

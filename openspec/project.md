@@ -108,7 +108,7 @@ gates usage and tracks token-level costs in IRR.
 | Service | Purpose | Config env vars |
 |---|---|---|
 | **Bale Bot API** | Messaging, payments, channel checks | `BALE_BOT_TOKEN`, `BALE_API_URL` |
-| **GapGPT / OpenAI-compatible API** | LLM for agent + Graphiti indexing | `GAPGPT_API_KEY`, `AGENT_CHAT_*`, `GRAPHITI_INDEX_LLM_*` |
+| **OpenAI-compatible LLM API** | LLM for agent | `AGENT_CHAT_*` |
 | **FalkorDB** | Graph DB backing Graphiti | `FALKOR_HOST`, `FALKOR_PORT`, `FALKORDB_PASSWORD`, `FALKOR_DATABASE` |
 | **PostgreSQL** | Users, messages, subscriptions, payments | `DATABASE_URL`, `POSTGRES_*` |
 | **Graphiti** | Knowledge graph search (RRF / cross-encoder) | `GRAPHITI_INDEX_*`, `GRAPHITI_SEARCH_*` |

@@ -116,17 +116,9 @@ def build_graphiti_deep_agent(
     if model is not None:
         resolved_model = model
     else:
-        agent_model = _env_first_nonempty("AGENT_CHAT_MODEL", "GRAPHITI_INDEX_LLM_MODEL")
-        agent_api_key = _env_first_nonempty(
-            "AGENT_CHAT_API_KEY",
-            "GAPGPT_API_KEY",
-            "GRAPHITI_INDEX_LLM_API_KEY",
-        )
-        agent_base_url = _env_first_nonempty(
-            "AGENT_CHAT_BASE_URL",
-            "GRAPHITI_INDEX_LLM_BASE_URL",
-            "GEMINI_BASE_URL",
-        )
+        agent_model = _env_first_nonempty("AGENT_CHAT_MODEL")
+        agent_api_key = _env_first_nonempty("AGENT_CHAT_API_KEY")
+        agent_base_url = _env_first_nonempty("AGENT_CHAT_BASE_URL")
         agent_temperature = float(os.getenv("AGENT_CHAT_TEMPERATURE", 0.1))
         agent_max_tokens = int(os.getenv("AGENT_CHAT_MAX_TOKENS", 4096))
 
@@ -134,7 +126,7 @@ def build_graphiti_deep_agent(
             raise ValueError(
                 "Set AGENT_CHAT_MODEL / AGENT_CHAT_API_KEY / AGENT_CHAT_BASE_URL, or pass "
                 "model=... explicitly. When unset, the agent falls back (in order) to "
-                "GRAPHITI_INDEX_LLM_* and GAPGPT_API_KEY plus GEMINI_BASE_URL."
+                "GRAPHITI_INDEX_LLM_*."
             )
 
         resolved_model = init_chat_model(
