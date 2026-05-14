@@ -56,6 +56,8 @@ RUN chmod +x /docker-scripts/*.sh
 
 # Add virtualenv to PATH
 ENV PATH=/app/.venv/bin:$PATH
+# src.app.* needs /app; `from app.*` inside those modules needs /app/src
+ENV PYTHONPATH=/app:/app/src
 
 # Working directory is /app (contains backend code)
 # No need to change since we copied backend/ to ./
@@ -65,10 +67,10 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+    CMD /app/.venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 # Use entrypoint script (in /docker-scripts to avoid volume mount conflicts)
 ENTRYPOINT ["/docker-scripts/entrypoint.sh"]
 
 # Default command
-CMD ["uv", "run", "uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/.venv/bin/uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
