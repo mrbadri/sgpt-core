@@ -20,6 +20,8 @@ FRONTEND_DIR = $(ROOT_DIR)/frontend
 # Docker Compose file paths
 DEV_COMPOSE = $(ROOT_DIR)/infrastructure/docker-compose.dev.yml
 PROD_COMPOSE = $(ROOT_DIR)/infrastructure/docker-compose.prod.yml
+# docker-compose.prod.yml attaches services to this external network (e.g. shared reverse proxy).
+PROD_PROXY_NETWORK := proxy
 
 # Default target
 .DEFAULT_GOAL := help
@@ -126,6 +128,7 @@ dev-down-v: ## Stop development environment and remove volumes
 
 # Production commands
 prod-up: ## Start production environment
+	@docker network inspect $(PROD_PROXY_NETWORK) >/dev/null 2>&1 || docker network create $(PROD_PROXY_NETWORK)
 	docker-compose -f $(PROD_COMPOSE) up -d
 
 prod-down: ## Stop production environment

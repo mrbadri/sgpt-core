@@ -1,0 +1,111 @@
+name: Infra Backup
+run-name: ${{ gitea.actor }} triggered infra backup
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        run: |
+          echo "Cloning repository..."
+          git clone https://${{ gitea.token }}@git.mrbadri.ir/${{ gitea.repository }}.git .
+          git checkout ${{ gitea.sha || 'main' }}
+
+      - name: Install jq
+        run: apt-get install -y jq
+
+      - name: Dump PostgreSQL
+        run: |
+          set -a; source infrastructure/.env; set +a
+          docker compose -f infrastructure/docker-compose.prod.yml exec -T db \
+            pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > /tmp/postgres.sql
+
+      - name: Dump FalkorDB
+        run: |
+          set -a; source infrastructure/.env; set +a
+          docker compose -f infrastructure/docker-compose.prod.yml exec -T falkordb \
+            redis-cli -a "${FALKORDB_PASSWORD:-abcd@1234}" --no-auth-warning \
+            --rdb /data/backup.rdb
+          docker compose -f infrastructure/docker-compose.prod.yml cp \
+            falkordb:/data/backup.rdb /tmp/falkordb.rdb
+
+      - name: Bundle backup tarball
+        run: |
+          TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+          TARBALL="/tmp/backup-${TIMESTAMP}.tar.gz"
+          echo "TARBALL=$TARBALL" >> $GITHUB_ENV
+          tar -czf "$TARBALL" \
+            infrastructure/docker-compose.prod.yml \
+            infrastructure/.env \
+            .gitea/ \
+            -C /tmp postgres.sql falkordb.rdb
+          rm -f /tmp/postgres.sql /tmp/falkordb.rdb
+
+      - name: Encrypt tarball
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          ENCRYPTED="${TARBALL}.enc"
+          echo "ENCRYPTED=$ENCRYPTED" >> $GITHUB_ENV
+          openssl enc -aes-256-cbc -pbkdf2 -iter 100000 \
+            -pass env:BACKUP_PASSPHRASE \
+            -in "$TARBALL" \
+            -out "$ENCRYPTED"
+          rm -f "$TARBALL"
+
+      - name: Compute checksum
+        run: |
+          CHECKSUM="${ENCRYPTED}.sha256"
+          echo "CHECKSUM=$CHECKSUM" >> $GITHUB_ENV
+          sha256sum "$ENCRYPTED" > "$CHECKSUM"
+
+      - name: Create Gitea release and upload assets
+        run: |
+          TAG="backup-${TIMESTAMP}"
+          API_BASE="https://git.mrbadri.ir/api/v1/repos/${{ gitea.repository }}"
+
+          RELEASE_ID=$(curl -sf -X POST \
+            -H "Authorization: Bearer ${{ gitea.token }}" \
+            -H "Content-Type: application/json" \
+            "${API_BASE}/releases" \
+            -d "{\"tag_name\":\"${TAG}\",\"name\":\"Infra Backup ${TIMESTAMP}\",\"body\":\"Automated infrastructure backup\",\"draft\":false,\"prerelease\":false}" \
+            | jq -r '.id')
+
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ gitea.token }}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@${ENCRYPTED}" \
+            "${API_BASE}/releases/${RELEASE_ID}/assets?name=$(basename $ENCRYPTED)"
+
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ gitea.token }}" \
+            -H "Content-Type: text/plain" \
+            --data-binary "@${CHECKSUM}" \
+            "${API_BASE}/releases/${RELEASE_ID}/assets?name=$(basename $CHECKSUM)"
+
+      - name: Enforce retention (keep last 72 backups)
+        run: |
+          API_BASE="https://git.mrbadri.ir/api/v1/repos/${{ gitea.repository }}"
+          KEEP=72
+
+          OLD_IDS=$(curl -sf \
+            -H "Authorization: Bearer ${{ gitea.token }}" \
+            "${API_BASE}/releases?limit=100" \
+            | jq -r "[.[] | select(.tag_name | startswith(\"backup-\"))] | sort_by(.created_at) | reverse | .[$KEEP:] | .[].id")
+
+          for ID in $OLD_IDS; do
+            echo "Deleting old backup release $ID..."
+            curl -sf -X DELETE \
+              -H "Authorization: Bearer ${{ gitea.token }}" \
+              "${API_BASE}/releases/${ID}"
+          done
+
+      - name: Cleanup temp files
+        if: always()
+        run: rm -f "$ENCRYPTED" "$CHECKSUM"
