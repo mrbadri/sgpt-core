@@ -13,6 +13,7 @@ from typing import Any, Union
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.schema import StreamEvent
 
+from app.agent.langfuse import langfuse_handler
 from app.agent.prompts import (
     ONBOARDING_PHOTO_LINE,
     ONBOARDING_PROMPT_TEMPLATE,
@@ -97,7 +98,7 @@ class BaleAgentBridge:
     ) -> AgentResult:
         """Run the agent via astream_events and fire status callbacks at key moments."""
         agent = self._get_agent()
-        cfg: RunnableConfig = {"configurable": {"thread_id": f"user-{user_id}"}}
+        cfg: RunnableConfig = {"configurable": {"thread_id": f"user-{user_id}"}, "callbacks": [langfuse_handler]}
 
         # Prepend long-term memory if available
         memory_contents = _read_user_memory(user_id)
