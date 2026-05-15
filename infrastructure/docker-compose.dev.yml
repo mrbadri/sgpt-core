@@ -49,9 +49,12 @@ services:
       dockerfile: infrastructure/Dockerfile.web
       target: development
     ports:
-      - "3000:3000"
+      - "4040:3000"
     volumes:
       - ../frontend:/app
+      # Shadow node_modules with the container's copy (built into the image).
+      # Prevents EPERM errors when host node_modules have incompatible permissions.
+      - web_node_modules:/app/node_modules
     env_file:
       - .env
     environment:
@@ -90,3 +93,4 @@ volumes:
   postgres_data:
   pgadmin_data:
   user_memories:
+  web_node_modules:

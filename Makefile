@@ -5,9 +5,9 @@
 #   make prod-up     # Start production environment
 #   make help        # Show all available commands
 
-.PHONY: help dev-up dev-down dev-down-v dev-build dev-logs dev-restart \
-prod-up prod-down prod-down-v prod-build prod-logs prod-restart \
-clean ps shell shell-backend shell-db migrate migrate-create \
+.PHONY: help dev-up dev-up-build dev-down dev-down-v dev-build dev-build-backend \
+dev-logs dev-restart prod-up prod-up-build prod-down prod-down-v prod-build \
+prod-logs prod-restart clean ps shell shell-backend shell-db migrate migrate-create \
 migrate-current migrate-history migrate-downgrade migrate-upgrade test test-unit \
 test-integration test-users dev-logs-web dev-restart-web dev-build-web \
 shell-web prod-logs-web prod-restart-web prod-build-web shell-web-prod \
@@ -38,6 +38,7 @@ help: ## Show this help message
 	@echo ""
 	@echo "Development Commands:"
 	@echo "  dev-up          Start development environment"
+	@echo "  dev-up-build    Start development environment (rebuild images first)"
 	@echo "  dev-down        Stop development environment"
 	@echo "  dev-down-v      Stop development environment and remove volumes"
 	@echo "  dev-build       Build development images (backend + web)"
@@ -46,9 +47,11 @@ help: ## Show this help message
 	@echo "  dev-restart     Restart development services"
 	@echo "  dev-restart-web Restart web service only"
 	@echo "  dev-build-web   Build web image only"
+	@echo "  dev-build-backend Build backend image only (dev)"
 	@echo ""
 	@echo "Production Commands:"
 	@echo "  prod-up         Start production environment"
+	@echo "  prod-up-build   Start production environment (rebuild images first)"
 	@echo "  prod-down       Stop production environment"
 	@echo "  prod-down-v     Stop production environment and remove volumes"
 	@echo "  prod-build      Build production images (backend + web)"
@@ -95,6 +98,9 @@ help: ## Show this help message
 dev-up: ## Start development environment
 	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) up -d
 
+dev-up-build: ## Start development environment (rebuild images first)
+	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) up -d --build
+
 dev-down: ## Stop development environment
 	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) down
 
@@ -122,6 +128,9 @@ dev-restart-web: ## Restart web service only (dev)
 dev-build-web: ## Build web image only (dev target)
 	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) build web
 
+dev-build-backend: ## Build backend image only (dev target)
+	cd $(ROOT_DIR) && docker-compose -f $(DEV_COMPOSE) build backend
+
 dev-stop: ## Stop development services without removing containers
 	docker-compose -f $(DEV_COMPOSE) stop
 
@@ -135,6 +144,10 @@ dev-down-v: ## Stop development environment and remove volumes
 prod-up: ## Start production environment
 	@docker network inspect $(PROD_PROXY_NETWORK) >/dev/null 2>&1 || docker network create $(PROD_PROXY_NETWORK)
 	docker-compose -f $(PROD_COMPOSE) up -d
+
+prod-up-build: ## Start production environment (rebuild images first)
+	@docker network inspect $(PROD_PROXY_NETWORK) >/dev/null 2>&1 || docker network create $(PROD_PROXY_NETWORK)
+	docker-compose -f $(/) up -d --build
 
 prod-down: ## Stop production environment
 	docker-compose -f $(PROD_COMPOSE) down
