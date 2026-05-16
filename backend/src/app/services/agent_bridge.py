@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 from collections.abc import Callable
 from datetime import date
@@ -61,6 +62,20 @@ def _read_user_memory(user_id: str) -> str:
 
 # Exam answer records queued to be injected into the next agent call (no round-trip needed).
 _pending_exam_context: dict[str, list[str]] = {}
+
+
+_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
+
+
+def _extract_json_str(text: str) -> str | None:
+    """Return the first JSON object string found in text, stripping markdown fences if present."""
+    m = _CODE_FENCE_RE.search(text)
+    candidate = m.group(1).strip() if m else text
+    start = candidate.find("{")
+    end = candidate.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    return candidate[start : end + 1]
 
 
 class BaleAgentBridge:
@@ -206,12 +221,14 @@ class BaleAgentBridge:
 
         # Agent sometimes returns structured data as a plain JSON string — try to parse it.
         if final_content:
-            try:
-                data = json.loads(final_content)
-                if isinstance(data, dict) and "response_type" in data:
-                    return AgentResponse(**data), cost_usd
-            except Exception:
-                pass
+            json_str = _extract_json_str(final_content)
+            if json_str:
+                try:
+                    data = json.loads(json_str)
+                    if isinstance(data, dict) and "response_type" in data:
+                        return AgentResponse.model_validate(data), cost_usd
+                except Exception:
+                    pass
 
         return final_content, cost_usd
 
