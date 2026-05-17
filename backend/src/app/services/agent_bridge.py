@@ -14,7 +14,7 @@ from typing import Any, Union
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.schema import StreamEvent
 
-from app.agent.langfuse import langfuse_handler
+from app.agent.langfuse import create_langfuse_handler, langfuse_trace_context
 from app.agent.prompts import (
     ONBOARDING_PHOTO_LINE,
     ONBOARDING_PROMPT_TEMPLATE,
@@ -110,10 +110,14 @@ class BaleAgentBridge:
         on_thinking: Callable[[], None] | None = None,
         on_searching: Callable[[], None] | None = None,
         on_got_it: Callable[[], None] | None = None,
+        channel: str | None = None,
+        provider: str | None = None,
+        provider_user_id: str | None = None,
     ) -> AgentResult:
         """Run the agent via astream_events and fire status callbacks at key moments."""
         agent = self._get_agent()
-        cfg: RunnableConfig = {"configurable": {"thread_id": f"user-{user_id}"}, "callbacks": [langfuse_handler]}
+        handler = create_langfuse_handler()
+        cfg: RunnableConfig = {"configurable": {"thread_id": f"user-{user_id}"}, "callbacks": [handler]}
 
         # Prepend long-term memory if available
         memory_contents = _read_user_memory(user_id)
@@ -126,7 +130,10 @@ class BaleAgentBridge:
 
         user_content: Any = prefix + text if prefix else text
 
-        return asyncio.run(self._stream_agent(agent, cfg, user_content, on_thinking, on_searching, on_got_it))
+        return asyncio.run(self._stream_agent(
+            agent, cfg, user_content, on_thinking, on_searching, on_got_it,
+            user_id=user_id, channel=channel, provider=provider, provider_user_id=provider_user_id,
+        ))
 
     async def _stream_agent(
         self,
@@ -136,6 +143,10 @@ class BaleAgentBridge:
         on_thinking: Callable[[], None] | None,
         on_searching: Callable[[], None] | None,
         on_got_it: Callable[[], None] | None,
+        user_id: str | None = None,
+        channel: str | None = None,
+        provider: str | None = None,
+        provider_user_id: str | None = None,
     ) -> AgentResult:
         thinking_fired = False
         searching_fired = False
@@ -145,71 +156,77 @@ class BaleAgentBridge:
         input_tokens: int = 0
         output_tokens: int = 0
 
-        async for event in agent.astream_events(
-            {"messages": [{"role": "user", "content": user_content}]},
-            config=cfg,
-            version="v2",
+        with langfuse_trace_context(
+            user_id=user_id,
+            channel=channel,
+            provider=provider,
+            provider_user_id=provider_user_id,
         ):
-            event: StreamEvent
-            kind: str = event["event"]
+            async for event in agent.astream_events(
+                {"messages": [{"role": "user", "content": user_content}]},
+                config=cfg,
+                version="v2",
+            ):
+                event: StreamEvent
+                kind: str = event["event"]
 
-            if not thinking_fired and kind in ("on_chain_start", "on_chat_model_start"):
-                thinking_fired = True
-                if on_thinking:
-                    on_thinking()
+                if not thinking_fired and kind in ("on_chain_start", "on_chat_model_start"):
+                    thinking_fired = True
+                    if on_thinking:
+                        on_thinking()
 
-            elif kind == "on_tool_start":
-                if not searching_fired:
-                    searching_fired = True
-                    if on_searching:
-                        on_searching()
+                elif kind == "on_tool_start":
+                    if not searching_fired:
+                        searching_fired = True
+                        if on_searching:
+                            on_searching()
 
-            elif kind == "on_tool_end":
-                if not got_it_fired:
-                    got_it_fired = True
-                    if on_got_it:
-                        on_got_it()
+                elif kind == "on_tool_end":
+                    if not got_it_fired:
+                        got_it_fired = True
+                        if on_got_it:
+                            on_got_it()
 
-            elif kind == "on_chat_model_end":
-                raw_output = event.get("data", {}).get("output")
-                meta: Any = None
-                if raw_output is not None:
-                    if hasattr(raw_output, "usage_metadata"):
-                        meta = raw_output.usage_metadata  # type: ignore[union-attr]
-                    elif isinstance(raw_output, dict):
-                        meta = raw_output.get("usage_metadata")
-                if meta is not None:
-                    if isinstance(meta, dict):
-                        input_tokens  += meta.get("input_tokens",  0) or 0
-                        output_tokens += meta.get("output_tokens", 0) or 0
-                    else:
-                        input_tokens  += getattr(meta, "input_tokens",  0) or 0
-                        output_tokens += getattr(meta, "output_tokens", 0) or 0
+                elif kind == "on_chat_model_end":
+                    raw_output = event.get("data", {}).get("output")
+                    meta: Any = None
+                    if raw_output is not None:
+                        if hasattr(raw_output, "usage_metadata"):
+                            meta = raw_output.usage_metadata  # type: ignore[union-attr]
+                        elif isinstance(raw_output, dict):
+                            meta = raw_output.get("usage_metadata")
+                    if meta is not None:
+                        if isinstance(meta, dict):
+                            input_tokens  += meta.get("input_tokens",  0) or 0
+                            output_tokens += meta.get("output_tokens", 0) or 0
+                        else:
+                            input_tokens  += getattr(meta, "input_tokens",  0) or 0
+                            output_tokens += getattr(meta, "output_tokens", 0) or 0
 
-            elif kind == "on_chain_end":
-                output = event.get("data", {}).get("output")
-                if isinstance(output, dict):
-                    sr = output.get("structured_response")
-                    if isinstance(sr, AgentResponse):
-                        final_structured = sr
-                    elif isinstance(sr, dict):
-                        try:
-                            final_structured = AgentResponse(**sr)
-                        except Exception:
-                            pass
-                    elif "messages" in output:
-                        msgs = output["messages"]
-                        if msgs:
+                elif kind == "on_chain_end":
+                    output = event.get("data", {}).get("output")
+                    if isinstance(output, dict):
+                        sr = output.get("structured_response")
+                        if isinstance(sr, AgentResponse):
+                            final_structured = sr
+                        elif isinstance(sr, dict):
                             try:
-                                last = msgs[-1] if isinstance(msgs, list) else list(msgs)[-1]
-                            except (TypeError, IndexError):
-                                last = None
-                            if last is not None:
-                                text_candidate = _assistant_message_text(
-                                    getattr(last, "content", last)
-                                ).strip()
-                                if text_candidate:
-                                    final_content = text_candidate
+                                final_structured = AgentResponse(**sr)
+                            except Exception:
+                                pass
+                        elif "messages" in output:
+                            msgs = output["messages"]
+                            if msgs:
+                                try:
+                                    last = msgs[-1] if isinstance(msgs, list) else list(msgs)[-1]
+                                except (TypeError, IndexError):
+                                    last = None
+                                if last is not None:
+                                    text_candidate = _assistant_message_text(
+                                        getattr(last, "content", last)
+                                    ).strip()
+                                    if text_candidate:
+                                        final_content = text_candidate
 
         cost_usd = (
             (input_tokens / 1_000_000) * INPUT_COST_PER_1M
@@ -237,10 +254,14 @@ class BaleAgentBridge:
         user_id: str,
         first_name: str,
         profile_url: str | None,
+        channel: str | None = None,
+        provider: str | None = None,
+        provider_user_id: str | None = None,
     ) -> AgentResult:
         """Run the deep agent for onboarding. Returns (AgentResponse | str, cost_usd)."""
         agent = self._get_agent()
-        cfg: RunnableConfig = {"configurable": {"thread_id": f"user-welcome-{user_id}"}}
+        handler = create_langfuse_handler()
+        cfg: RunnableConfig = {"configurable": {"thread_id": f"user-welcome-{user_id}"}, "callbacks": [handler]}
 
         prompt = ONBOARDING_PROMPT_TEMPLATE.format(
             first_name=first_name or "دوست",
@@ -257,7 +278,10 @@ class BaleAgentBridge:
             user_content = prompt
 
         async def _run() -> AgentResult:
-            return await self._stream_agent(agent, cfg, user_content, None, None, None)
+            return await self._stream_agent(
+                agent, cfg, user_content, None, None, None,
+                user_id=user_id, channel=channel, provider=provider, provider_user_id=provider_user_id,
+            )
 
         return asyncio.run(_run())
 
